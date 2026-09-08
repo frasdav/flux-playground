@@ -1,0 +1,7 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flux-playground
+  labels:
+    app.kubernetes.io/part-of: flux-playground

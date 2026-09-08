@@ -1,0 +1,30 @@
+---
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: flux-playground
+servers: 1
+agents: 1
+image: rancher/k3s:v1.36.4-k3s1
+registries:
+  use:
+    - k3d-flux-playground-registry:5000
+options:
+  k3d:
+    disableLoadbalancer: true
+  k3s:
+    extraArgs:
+      - arg: "--disable=traefik,servicelb"
+        nodeFilters:
+          - server:*
+      - arg: "--node-taint=CriticalAddonsOnly=true:NoExecute"
+        nodeFilters:
+          - server:*
+  kubeconfig:
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false
+files:
+  - source: ../flux/flux-operator.yaml
+    destination: /var/lib/rancher/k3s/server/manifests/flux-operator.yaml
+    nodeFilters:
+      - server:*
