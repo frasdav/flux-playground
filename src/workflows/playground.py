@@ -32,13 +32,13 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, NoReturn, Sequence
 
 from invoke import task
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CONTEXT_DIR = REPO_ROOT / ".context"
-KUBECONFIG_PATH = CONTEXT_DIR / "kubeconfig-flux-playground.yaml"
+KUBECONFIG_DIR = Path.home() / ".kube"
+KUBECONFIG_PATH = KUBECONFIG_DIR / "k3d-flux-playground.yaml"
 K3D_CONFIG_PATH = REPO_ROOT / "config" / "k3d" / "playground.yaml"
 FLUX_OPERATOR_MANIFEST_PATH = REPO_ROOT / "config" / "flux" / "flux-operator.yaml"
 FLUX_INSTANCE_MANIFEST_PATH = REPO_ROOT / "config" / "flux" / "flux-instance.yaml"
@@ -123,7 +123,6 @@ class PlaygroundSettings:
     """Resolved, immutable configuration for a single workflow run."""
 
     repo_root: Path
-    context_dir: Path
     kubeconfig_path: Path
     cluster_name: str = CLUSTER_NAME
     registry_name: str = REGISTRY_NAME
@@ -154,8 +153,7 @@ class PlaygroundSettings:
     @property
     def in_cluster_source_url(self) -> str:
         return (
-            f"oci://{self.registry_container_name}:5000/"
-            f"{self.artifact_repository_path}"
+            f"oci://{self.registry_container_name}:5000/{self.artifact_repository_path}"
         )
 
 
@@ -239,10 +237,15 @@ class CommandRunner:
         check: bool = False,
         env: Mapping[str, str] | None = None,
         cwd: Path | str | None = None,
-        input: bytes | None = None,
+        input: str | None = None,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         effective_timeout = self.default_timeout if timeout is None else timeout
+        if input is not None and not isinstance(input, str):
+            raise PlaygroundError(
+                f"Command {argv!r} requires text input; got "
+                f"{type(input).__name__} instead of str."
+            )
         try:
             result = subprocess.run(  # noqa: S603 - argv is always a list
                 list(argv),
@@ -412,7 +415,6 @@ def _settings_from(c: Any, **overrides: Any) -> PlaygroundSettings:
     resolved_timeout = resolve_timeout(timeout_seconds, env)
     return PlaygroundSettings(
         repo_root=REPO_ROOT,
-        context_dir=CONTEXT_DIR,
         kubeconfig_path=KUBECONFIG_PATH,
         registry_port=resolved_port,
         timeout_seconds=resolved_timeout,
@@ -451,7 +453,9 @@ def _preflight(
     _require_docker_server(runner)
     _require_k3d_version(settings, runner)
     _require_flux_cli_version(runner)
-    stdout(f"Preflight OK (k3d, flux CLI ≥ {FLUX_CLI_MIN_VERSION}).")
+    stdout(
+        f"Preflight OK (k3d ≥ {K3D_MIN_VERSION}, flux CLI ≥ {FLUX_CLI_MIN_VERSION})."
+    )
 
 
 def _require_docker_server(runner: CommandRunner) -> None:
@@ -519,16 +523,12 @@ def _parse_semver(value: str) -> tuple[int, int, int]:
 def _list_registries_json(
     runner: CommandRunner,
 ) -> list[Mapping[str, Any]]:
-    result = runner.run(
-        ["k3d", "registry", "list", "-o", "json"], check=True
-    )
+    result = runner.run(["k3d", "registry", "list", "-o", "json"], check=True)
     return _parse_json_array(result.stdout, source="k3d registry list")
 
 
 def _list_clusters_json(runner: CommandRunner) -> list[Mapping[str, Any]]:
-    result = runner.run(
-        ["k3d", "cluster", "list", "-o", "json"], check=True
-    )
+    result = runner.run(["k3d", "cluster", "list", "-o", "json"], check=True)
     return _parse_json_array(result.stdout, source="k3d cluster list")
 
 
@@ -539,9 +539,7 @@ def _parse_json_array(payload: str, *, source: str) -> list[Mapping[str, Any]]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise PlaygroundError(
-            f"{source} returned invalid JSON: {exc}"
-        ) from exc
+        raise PlaygroundError(f"{source} returned invalid JSON: {exc}") from exc
     if not isinstance(parsed, list):
         raise PlaygroundError(
             f"{source} did not return a JSON array: {type(parsed).__name__}"
@@ -604,55 +602,101 @@ def _parse_state(value: Any) -> dict[str, Any]:
 
 def _parse_host_binding(
     entry: Mapping[str, Any],
-) -> tuple[str | None, int | None]:
+) -> tuple[str, int]:
     """Parse the ``5000/tcp`` host binding from a k3d registry entry.
 
     Returns ``(host_ip, host_port)`` on success, or raises
     :class:`PlaygroundError` on any structural problem so the caller never
-    silently accepts a malformed binding.
+    silently accepts a malformed binding. Every structural failure is
+    wrapped with ``Run `make reset`.`` because the value came from an
+    existing k3d registry whose binding cannot be repaired in place.
     """
+    def fail(message: str) -> NoReturn:
+        raise PlaygroundError(f"{message} Run `make reset`.")
+
     ports = entry.get("portMappings") or entry.get("ports")
     if not isinstance(ports, dict):
-        raise PlaygroundError(
+        fail(
             "k3d registry JSON is missing a portMappings object; the "
             "runtime contract has changed."
         )
     mapping = ports.get("5000/tcp")
     if mapping is None:
-        raise PlaygroundError(
-            "k3d registry JSON is missing the 5000/tcp port mapping."
-        )
+        fail("k3d registry JSON is missing the 5000/tcp port mapping.")
     if not isinstance(mapping, list) or not mapping:
-        raise PlaygroundError(
-            "k3d registry 5000/tcp mapping must be a non-empty list."
-        )
+        fail("k3d registry 5000/tcp mapping must be a non-empty list.")
     if len(mapping) > 1:
-        raise PlaygroundError(
+        fail(
             f"k3d registry 5000/tcp has {len(mapping)} bindings; "
             "exactly one is required."
         )
     binding = mapping[0]
     if not isinstance(binding, dict):
-        raise PlaygroundError(
-            "k3d registry 5000/tcp binding must be a JSON object."
-        )
+        fail("k3d registry 5000/tcp binding must be a JSON object.")
     host_ip = binding.get("HostIp")
     if host_ip is None or host_ip == "":
-        raise PlaygroundError(
-            "k3d registry 5000/tcp binding is missing HostIp."
-        )
+        fail("k3d registry 5000/tcp binding is missing HostIp.")
     host_port = binding.get("HostPort")
     if host_port is None or host_port == "":
-        raise PlaygroundError(
-            "k3d registry 5000/tcp binding is missing HostPort."
-        )
+        fail("k3d registry 5000/tcp binding is missing HostPort.")
     try:
-        port_value = int(host_port)
-    except (TypeError, ValueError) as exc:
-        raise PlaygroundError(
-            f"k3d registry 5000/tcp HostPort {host_port!r} is not a number."
-        ) from exc
+        port_value = _parse_host_port(host_port)
+    except PlaygroundError as exc:
+        raise PlaygroundError(f"{exc} Run `make reset`.") from exc
     return str(host_ip), port_value
+
+
+def _parse_host_port(value: Any) -> int:
+    """Parse a JSON integer host port in the inclusive range ``1..65535``.
+
+    Accepts JSON integers and numeric strings. Rejects booleans, floats
+    (including integral-looking values such as ``5001.0``), non-numeric
+    strings, lists, objects, ``None``, empty strings, and ports outside
+    ``1..65535``. The error message includes the rejected value and the
+    accepted formats; lifecycle callers may add ``make reset`` guidance.
+    """
+    parsed = _parse_port(value)
+    if parsed is None:
+        raise PlaygroundError(
+            f"Invalid host port {value!r}. Expected a JSON integer or a "
+            "string containing an integer in 1..65535."
+        )
+    return parsed
+
+
+def _require_int(entry: Mapping[str, Any], *, field: str) -> int:
+    """Return a required, non-negative integer from a k3d JSON entry.
+
+    Accepts JSON integers including zero. Rejects booleans, missing
+    fields, strings, floats, negative numbers, lists, and objects.
+    Raises :class:`PlaygroundError` (never ``TypeError`` or
+    ``ValueError``) with the offending field and value.
+    """
+    if not isinstance(entry, dict):
+        raise PlaygroundError(
+            f"k3d JSON entry is not a JSON object; cannot read {field!r}."
+        )
+    if field not in entry:
+        raise PlaygroundError(
+            f"k3d JSON contract is missing required field {field!r}; "
+            "the runtime contract has changed."
+        )
+    value = entry[field]
+    # Reject booleans explicitly: ``True`` is an ``int`` subclass in Python.
+    if isinstance(value, bool):
+        raise PlaygroundError(
+            f"k3d field {field!r} must be an integer, got boolean {value!r}."
+        )
+    if not isinstance(value, int):
+        raise PlaygroundError(
+            f"k3d field {field!r} must be an integer, got {type(value).__name__} "
+            f"value {value!r}."
+        )
+    if value < 0:
+        raise PlaygroundError(
+            f"k3d field {field!r} must be non-negative, got {value}."
+        )
+    return value
 
 
 def _find_cluster_state(
@@ -663,10 +707,10 @@ def _find_cluster_state(
     for entry in entries:
         if entry.get("name") != cluster_name:
             continue
-        servers_count = int(entry.get("serversCount", 0) or 0)
-        agents_count = int(entry.get("agentsCount", 0) or 0)
-        servers_running = int(entry.get("serversRunning", 0) or 0)
-        agents_running = int(entry.get("agentsRunning", 0) or 0)
+        servers_count = _require_int(entry, field="serversCount")
+        agents_count = _require_int(entry, field="agentsCount")
+        servers_running = _require_int(entry, field="serversRunning")
+        agents_running = _require_int(entry, field="agentsRunning")
         # k3d serializes the load-balancer flag with a lowercase 'b' and
         # omits it entirely when false; treat omission as false.
         has_load_balancer = bool(entry.get("hasLoadbalancer", False))
@@ -759,9 +803,7 @@ def _adopt_existing_registry_port(
     return replace(settings, registry_port=registry.host_port)
 
 
-def _registry_name_present(
-    settings: PlaygroundSettings, runner: CommandRunner
-) -> bool:
+def _registry_name_present(settings: PlaygroundSettings, runner: CommandRunner) -> bool:
     """Return True when a registry container with the expected name exists.
 
     Deliberately name-only. Teardown must be able to delete a registry
@@ -775,19 +817,13 @@ def _registry_name_present(
     )
 
 
-def _cluster_name_present(
-    settings: PlaygroundSettings, runner: CommandRunner
-) -> bool:
+def _cluster_name_present(settings: PlaygroundSettings, runner: CommandRunner) -> bool:
     """Return True when a cluster with the expected name exists (name-only)."""
     entries = _list_clusters_json(runner)
-    return any(
-        str(entry.get("name", "")) == settings.cluster_name for entry in entries
-    )
+    return any(str(entry.get("name", "")) == settings.cluster_name for entry in entries)
 
 
-def _create_registry(
-    settings: PlaygroundSettings, runner: CommandRunner
-) -> None:
+def _create_registry(settings: PlaygroundSettings, runner: CommandRunner) -> None:
     runner.run(
         [
             "k3d",
@@ -804,9 +840,7 @@ def _create_registry(
     )
 
 
-def _create_cluster(
-    settings: PlaygroundSettings, runner: CommandRunner
-) -> None:
+def _create_cluster(settings: PlaygroundSettings, runner: CommandRunner) -> None:
     runner.run(
         [
             "k3d",
@@ -974,7 +1008,9 @@ def _validate_cluster_state(
     # Exactly one server, one agent, no unknown roles.
     server_count = sum(1 for n in cluster.nodes if n.role == "server")
     agent_count = sum(1 for n in cluster.nodes if n.role == "agent")
-    unknown_roles = sorted({n.role for n in cluster.nodes if n.role not in ("server", "agent")})
+    unknown_roles = sorted(
+        {n.role for n in cluster.nodes if n.role not in ("server", "agent")}
+    )
     if server_count != 1:
         raise PlaygroundError(
             f"Cluster {settings.cluster_name!r} has {server_count} server nodes; "
@@ -1027,14 +1063,18 @@ def _write_kubeconfig(
     runner: CommandRunner,
 ) -> None:
     """Capture the k3d kubeconfig into the dedicated isolated path."""
-    settings.context_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(settings.context_dir, KUBECONFIG_DIR_MODE)
+    kubeconfig_dir = settings.kubeconfig_path.parent
+    kubeconfig_dir.mkdir(
+        mode=KUBECONFIG_DIR_MODE,
+        parents=True,
+        exist_ok=True,
+    )
     result = runner.run(
         ["k3d", "kubeconfig", "get", settings.cluster_name],
         check=True,
     )
     fd, tmp_path = tempfile.mkstemp(
-        prefix="kubeconfig-", suffix=".yaml", dir=str(settings.context_dir)
+        prefix="kubeconfig-", suffix=".yaml", dir=str(kubeconfig_dir)
     )
     try:
         with os.fdopen(fd, "w") as handle:
@@ -1157,9 +1197,7 @@ def _wait_for_nodes_ready(
         items = data.get("items", []) if isinstance(data, dict) else []
         if len(items) != 2:
             return False
-        return all(
-            _condition(item, condition_type="Ready") for item in items
-        )
+        return all(_condition(item, condition_type="Ready") for item in items)
 
     if not _wait_until("nodes Ready", deadline, POLL_INTERVAL_SECONDS, predicate):
         raise PlaygroundError("Timed out waiting for cluster nodes to become Ready.")
@@ -1259,7 +1297,9 @@ def _wait_for_operator_ready(
             return False
         spec_replicas = (data.get("spec", {}) or {}).get("replicas", 0) or 0
         ready = (data.get("status", {}) or {}).get("readyReplicas", 0) or 0
-        return _condition(data, condition_type="Available") and ready >= max(spec_replicas, 1)
+        return _condition(data, condition_type="Available") and ready >= max(
+            spec_replicas, 1
+        )
 
     if not _wait_until(
         "Flux Operator deployment",
@@ -1302,8 +1342,12 @@ def _wait_for_flux_instance(
             )
         return _condition(data, condition_type="Ready")
 
-    if not _wait_until("FluxInstance ready", deadline, POLL_INTERVAL_SECONDS, predicate):
-        raise PlaygroundError("Timed out waiting for FluxInstance/flux to report Ready.")
+    if not _wait_until(
+        "FluxInstance ready", deadline, POLL_INTERVAL_SECONDS, predicate
+    ):
+        raise PlaygroundError(
+            "Timed out waiting for FluxInstance/flux to report Ready."
+        )
 
 
 def _wait_for_flux_controllers(
@@ -1334,9 +1378,7 @@ def _wait_for_flux_controllers(
                 return False
         return True
 
-    if not _wait_until(
-        "Flux controllers", deadline, POLL_INTERVAL_SECONDS, predicate
-    ):
+    if not _wait_until("Flux controllers", deadline, POLL_INTERVAL_SECONDS, predicate):
         raise PlaygroundError("Timed out waiting for Flux controller deployments.")
 
 
@@ -1362,8 +1404,12 @@ def _wait_for_flux_crds(
                 established.add(name)
         return set(EXPECTED_CRDS).issubset(established)
 
-    if not _wait_until("Flux CRDs established", deadline, POLL_INTERVAL_SECONDS, predicate):
-        raise PlaygroundError("Timed out waiting for the expected Flux CRDs to be Established.")
+    if not _wait_until(
+        "Flux CRDs established", deadline, POLL_INTERVAL_SECONDS, predicate
+    ):
+        raise PlaygroundError(
+            "Timed out waiting for the expected Flux CRDs to be Established."
+        )
 
 
 def _apply_flux_instance(
@@ -1491,9 +1537,7 @@ def _check_registry_reachable(settings: PlaygroundSettings) -> None:
     try:
         urllib.request.urlopen(request, timeout=5.0).read()
     except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-        raise PlaygroundError(
-            f"Local registry {url} is not reachable: {exc}"
-        ) from exc
+        raise PlaygroundError(f"Local registry {url} is not reachable: {exc}") from exc
 
 
 def _extract_digest(payload: str) -> str | None:
@@ -1652,7 +1696,9 @@ def _wait_for_source_ready(
         return _condition(data, condition_type="Ready")
 
     if not _wait_until("OCIRepository", deadline, POLL_INTERVAL_SECONDS, predicate):
-        raise PlaygroundError("Timed out waiting for OCIRepository/playground to be Ready.")
+        raise PlaygroundError(
+            "Timed out waiting for OCIRepository/playground to be Ready."
+        )
 
 
 def _wait_for_kustomization_ready(
@@ -1677,7 +1723,9 @@ def _wait_for_kustomization_ready(
         return _condition(data, condition_type="Ready")
 
     if not _wait_until("Kustomization", deadline, POLL_INTERVAL_SECONDS, predicate):
-        raise PlaygroundError("Timed out waiting for Kustomization/playground to be Ready.")
+        raise PlaygroundError(
+            "Timed out waiting for Kustomization/playground to be Ready."
+        )
 
 
 def _wait_for_smoke_workload(
@@ -1824,17 +1872,19 @@ def _full_health_check(
     failures: list[str] = []
     stdout("Health check:")
 
+    # State accessors below intentionally raise ``PlaygroundError`` on
+    # parser or vendor-contract failures. The aggregation loop at the
+    # bottom of this function catches every exception, prints its
+    # message, marks the individual check failed, and continues with
+    # later checks — which is what surfaces actionable parser reasons
+    # to the operator. Missing-target cases still return ``None`` and
+    # are handled as ordinary "fail" entries.
+
     def registry_state() -> RegistryState | None:
-        try:
-            return _registry_state(settings, runner)
-        except PlaygroundError:
-            return None
+        return _registry_state(settings, runner)
 
     def cluster_state() -> ClusterState | None:
-        try:
-            return _cluster_state(settings, runner)
-        except PlaygroundError:
-            return None
+        return _cluster_state(settings, runner)
 
     def registry_running() -> bool:
         state = registry_state()
@@ -1879,12 +1929,12 @@ def _full_health_check(
         server_have_taint = False
         agent_no_taint = False
         for item in items:
-            labels = ((item.get("metadata") or {}).get("labels") or {})
+            labels = (item.get("metadata") or {}).get("labels") or {}
             role_keys = (
                 "node-role.kubernetes.io/control-plane",
                 "node-role.kubernetes.io/master",
             )
-            taints = ((item.get("spec") or {}).get("taints") or [])
+            taints = (item.get("spec") or {}).get("taints") or []
             has_taint = any(
                 isinstance(taint, dict)
                 and taint.get("key") == SERVER_TAINT_KEY
@@ -2002,9 +2052,7 @@ def _full_health_check(
         return True
 
     def flux_check_ok() -> bool:
-        result = _flux(
-            settings, runner, "check", check=False, timeout=60.0
-        )
+        result = _flux(settings, runner, "check", check=False, timeout=60.0)
         return result.returncode == 0
 
     def ocirepo_ready() -> bool:
@@ -2076,10 +2124,10 @@ def _full_health_check(
         agent_names = {
             str((n.get("metadata") or {}).get("name", ""))
             for n in node_items
-            if "node-role.kubernetes.io/control-plane" not in
-            ((n.get("metadata") or {}).get("labels") or {})
-            and "node-role.kubernetes.io/master" not in
-            ((n.get("metadata") or {}).get("labels") or {})
+            if "node-role.kubernetes.io/control-plane"
+            not in ((n.get("metadata") or {}).get("labels") or {})
+            and "node-role.kubernetes.io/master"
+            not in ((n.get("metadata") or {}).get("labels") or {})
         }
         for pod in items:
             node_name = (pod.get("spec") or {}).get("nodeName", "")
@@ -2139,6 +2187,7 @@ def _diagnose(
     Each section is wrapped so a discovery failure cannot replace the
     primary failure.
     """
+
     def emit(title: str, argv: Sequence[str]) -> None:
         stdout(f"--- {title} ---")
         try:
@@ -2278,9 +2327,7 @@ def _diagnose(
 
     # Per-namespace HelmRelease summaries; full describe for any failing one.
     try:
-        helmreleases = _kubectl_json(
-            settings, runner, "get", "helmreleases", "-A"
-        )
+        helmreleases = _kubectl_json(settings, runner, "get", "helmreleases", "-A")
     except PlaygroundError:
         helmreleases = {}
     items = helmreleases.get("items", []) if isinstance(helmreleases, dict) else []

@@ -39,8 +39,7 @@ SYNC_MANIFEST_PATH = playground.SYNC_MANIFEST_PATH
 def _make_settings(tmp: Path, **overrides: Any) -> playground.PlaygroundSettings:
     base = dict(
         repo_root=tmp,
-        context_dir=tmp / ".context",
-        kubeconfig_path=tmp / ".context" / "kubeconfig-flux-playground.yaml",
+        kubeconfig_path=tmp / ".kube" / "k3d-flux-playground.yaml",
         registry_port=5001,
         timeout_seconds=10,
     )
@@ -48,7 +47,9 @@ def _make_settings(tmp: Path, **overrides: Any) -> playground.PlaygroundSettings
     return playground.PlaygroundSettings(**base)
 
 
-def _ok(stdout: str = "", stderr: str = "", rc: int = 0) -> subprocess.CompletedProcess[str]:
+def _ok(
+    stdout: str = "", stderr: str = "", rc: int = 0
+) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(
         args=[], returncode=rc, stdout=stdout, stderr=stderr
     )
@@ -180,7 +181,11 @@ def _healthy_registry_state(
         "State": state_block,
         "portMappings": {
             "5000/tcp": [
-                {"HostIp": "127.0.0.1", "HostPort": str(host_port), "ContainerPort": "5000"}
+                {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": str(host_port),
+                    "ContainerPort": "5000",
+                }
             ],
         },
     }
@@ -296,7 +301,10 @@ def _registry_state_with_binding(
 
 class TestResolutionPrecedence(unittest.TestCase):
     def test_registry_port_precedence(self) -> None:
-        env = {playground.CONDUCTOR_PORT_ENV: "5050", playground.PLAYGROUND_REGISTRY_PORT_ENV: "5051"}
+        env = {
+            playground.CONDUCTOR_PORT_ENV: "5050",
+            playground.PLAYGROUND_REGISTRY_PORT_ENV: "5051",
+        }
         self.assertEqual(playground.resolve_registry_port("5055", env), 5055)
         self.assertEqual(playground.resolve_registry_port(None, env), 5051)
         self.assertEqual(playground.resolve_timeout(None, env), 300)
@@ -334,7 +342,9 @@ class TestResolutionPrecedence(unittest.TestCase):
         with self.assertRaises(playground.PlaygroundError):
             playground.resolve_registry_port(0, {})
         with self.assertRaises(playground.PlaygroundError):
-            playground.resolve_registry_port(None, {playground.PLAYGROUND_REGISTRY_PORT_ENV: "x"})
+            playground.resolve_registry_port(
+                None, {playground.PLAYGROUND_REGISTRY_PORT_ENV: "x"}
+            )
 
     def test_invalid_timeout_rejected(self) -> None:
         with self.assertRaises(playground.PlaygroundError):
@@ -485,12 +495,16 @@ class TestReconcileTimeouts(unittest.TestCase):
         call = runner.run.call_args
         return call.args[0], call.kwargs["timeout"]
 
-    def test_source_reconcile_passes_flux_timeout_and_larger_subprocess_cap(self) -> None:
+    def test_source_reconcile_passes_flux_timeout_and_larger_subprocess_cap(
+        self,
+    ) -> None:
         argv, timeout = self._capture(playground._reconcile_source)
         self.assertIn("--timeout=42s", argv)
         self.assertGreater(timeout, 42.0)
 
-    def test_kustomization_reconcile_passes_flux_timeout_and_larger_subprocess_cap(self) -> None:
+    def test_kustomization_reconcile_passes_flux_timeout_and_larger_subprocess_cap(
+        self,
+    ) -> None:
         argv, timeout = self._capture(playground._reconcile_kustomization)
         self.assertIn("--timeout=42s", argv)
         self.assertGreater(timeout, 42.0)
@@ -592,10 +606,19 @@ class TestLifecycleState(unittest.TestCase):
 
         with mock.patch.object(playground, "_registry_state", return_value=None):
             with mock.patch.object(playground, "_cluster_state", return_value=None):
-                with mock.patch.object(playground, "_create_registry", side_effect=fake_create_registry):
-                    with mock.patch.object(playground, "_create_cluster", side_effect=fake_create_cluster):
-                        with mock.patch.object(playground, "_wait_for_registry_endpoint"):
-                            playground._ensure_infrastructure(self.settings, _docker_inspect_mock(_standard_inspect_expected()))
+                with mock.patch.object(
+                    playground, "_create_registry", side_effect=fake_create_registry
+                ):
+                    with mock.patch.object(
+                        playground, "_create_cluster", side_effect=fake_create_cluster
+                    ):
+                        with mock.patch.object(
+                            playground, "_wait_for_registry_endpoint"
+                        ):
+                            playground._ensure_infrastructure(
+                                self.settings,
+                                _docker_inspect_mock(_standard_inspect_expected()),
+                            )
 
         self.assertEqual(registry_created, [True])
         self.assertEqual(cluster_created, [True])
@@ -613,10 +636,13 @@ class TestLifecycleState(unittest.TestCase):
             with mock.patch.object(playground, "_cluster_state", return_value=None):
                 with mock.patch.object(playground, "_create_registry"):
                     with mock.patch.object(
-                        playground, "_create_cluster",
+                        playground,
+                        "_create_cluster",
                         side_effect=lambda *_a, **_k: cluster_created.append(True),
                     ):
-                        with mock.patch.object(playground, "_wait_for_registry_endpoint"):
+                        with mock.patch.object(
+                            playground, "_wait_for_registry_endpoint"
+                        ):
                             playground._ensure_infrastructure(self.settings, runner)
         self.assertEqual(cluster_created, [True])
 
@@ -633,7 +659,9 @@ class TestLifecycleState(unittest.TestCase):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with mock.patch.object(playground, "_create_registry") as cr:
                     with mock.patch.object(playground, "_create_cluster") as cc:
-                        with mock.patch.object(playground, "_wait_for_registry_endpoint"):
+                        with mock.patch.object(
+                            playground, "_wait_for_registry_endpoint"
+                        ):
                             playground._ensure_infrastructure(self.settings, runner)
         # No creation when both are healthy.
         cr.assert_not_called()
@@ -660,7 +688,9 @@ class TestLifecycleState(unittest.TestCase):
                     playground._ensure_infrastructure(self.settings, runner)
         argv_lists = [c.args[0] for c in runner.run.call_args_list]
         self.assertTrue(any(argv[:2] == ["docker", "start"] for argv in argv_lists))
-        self.assertFalse(any(argv[:3] == ["k3d", "registry", "start"] for argv in argv_lists))
+        self.assertFalse(
+            any(argv[:3] == ["k3d", "registry", "start"] for argv in argv_lists)
+        )
         create_cluster.assert_called_once()
 
     def test_stopped_cluster_uses_k3d_cluster_start_with_wait(self) -> None:
@@ -687,12 +717,16 @@ class TestLifecycleState(unittest.TestCase):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with mock.patch.object(playground, "_create_cluster"):
                     with mock.patch.object(playground, "_create_registry"):
-                        with mock.patch.object(playground, "_wait_for_registry_endpoint"):
+                        with mock.patch.object(
+                            playground, "_wait_for_registry_endpoint"
+                        ):
                             playground._ensure_infrastructure(self.settings, runner)
         argv_lists = [c.args[0] for c in runner.run.call_args_list]
         self.assertTrue(
-            any(argv[:3] == ["k3d", "cluster", "start"] and "--wait" in argv
-                for argv in argv_lists)
+            any(
+                argv[:3] == ["k3d", "cluster", "start"] and "--wait" in argv
+                for argv in argv_lists
+            )
         )
 
     def test_missing_registry_with_existing_cluster_fails(self) -> None:
@@ -700,7 +734,10 @@ class TestLifecycleState(unittest.TestCase):
         with mock.patch.object(playground, "_registry_state", return_value=None):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with self.assertRaises(playground.PlaygroundError) as ctx:
-                    playground._ensure_infrastructure(self.settings, _docker_inspect_mock(_standard_inspect_expected()))
+                    playground._ensure_infrastructure(
+                        self.settings,
+                        _docker_inspect_mock(_standard_inspect_expected()),
+                    )
         self.assertIn("reset", str(ctx.exception))
 
     def test_wrong_registry_image_fails(self) -> None:
@@ -735,7 +772,10 @@ class TestLifecycleState(unittest.TestCase):
         with mock.patch.object(playground, "_registry_state", return_value=registry):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with self.assertRaises(playground.PlaygroundError) as ctx:
-                    playground._ensure_infrastructure(self.settings, _docker_inspect_mock(_standard_inspect_expected()))
+                    playground._ensure_infrastructure(
+                        self.settings,
+                        _docker_inspect_mock(_standard_inspect_expected()),
+                    )
         self.assertIn("reset", str(ctx.exception))
 
     def test_wrong_server_count_fails(self) -> None:
@@ -752,7 +792,10 @@ class TestLifecycleState(unittest.TestCase):
         with mock.patch.object(playground, "_registry_state", return_value=registry):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with self.assertRaises(playground.PlaygroundError):
-                    playground._ensure_infrastructure(self.settings, _docker_inspect_mock(_standard_inspect_expected()))
+                    playground._ensure_infrastructure(
+                        self.settings,
+                        _docker_inspect_mock(_standard_inspect_expected()),
+                    )
 
     def test_wrong_k3s_image_fails(self) -> None:
         registry = _registry_state_with_binding(
@@ -766,7 +809,9 @@ class TestLifecycleState(unittest.TestCase):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with self.assertRaises(playground.PlaygroundError) as ctx:
                     inspect_expected = _standard_inspect_expected()
-                    inspect_expected["k3d-flux-playground-server-0"] = "rancher/k3s:v1.33.0-k3s1"
+                    inspect_expected["k3d-flux-playground-server-0"] = (
+                        "rancher/k3s:v1.33.0-k3s1"
+                    )
                     playground._ensure_infrastructure(
                         self.settings, _docker_inspect_mock(inspect_expected)
                     )
@@ -785,7 +830,10 @@ class TestLifecycleState(unittest.TestCase):
         with mock.patch.object(playground, "_registry_state", return_value=registry):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with self.assertRaises(playground.PlaygroundError):
-                    playground._ensure_infrastructure(self.settings, _docker_inspect_mock(_standard_inspect_expected()))
+                    playground._ensure_infrastructure(
+                        self.settings,
+                        _docker_inspect_mock(_standard_inspect_expected()),
+                    )
 
     def test_unrelated_resources_ignored(self) -> None:
         unrelated_registry = _healthy_registry_state(
@@ -799,7 +847,9 @@ class TestLifecycleState(unittest.TestCase):
 
         def run_side_effect(argv, **kw):
             if argv[:3] == ["k3d", "registry", "list"]:
-                return _ok(stdout=json.dumps([unrelated_registry, _healthy_registry_state()]))
+                return _ok(
+                    stdout=json.dumps([unrelated_registry, _healthy_registry_state()])
+                )
             if argv[:3] == ["k3d", "cluster", "list"]:
                 return _ok(stdout=json.dumps([unrelated_cluster, target]))
             return original_run(argv, **kw)
@@ -847,10 +897,12 @@ class TestTeardown(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_idempotent_when_nothing_exists(self) -> None:
-        runner = _runner_with([
-            _ok(stdout=json.dumps([])),  # cluster list
-            _ok(stdout=json.dumps([])),  # registry list
-        ])
+        runner = _runner_with(
+            [
+                _ok(stdout=json.dumps([])),  # cluster list
+                _ok(stdout=json.dumps([])),  # registry list
+            ]
+        )
         # Must not raise.
         playground._tear_down(self.settings, runner)
         for call in runner.run.call_args_list:
@@ -861,14 +913,22 @@ class TestTeardown(unittest.TestCase):
                 self.fail("delete issued for non-existent registry")
 
     def test_targets_only_named_resources(self) -> None:
-        registries = [_healthy_registry_state(), _healthy_registry_state(container_name="k3d-other-registry")]
-        clusters = [_healthy_cluster_state(), _healthy_cluster_state(cluster_name="other-cluster")]
-        runner = _runner_with([
-            _ok(stdout=json.dumps(clusters)),  # cluster list
-            _ok(stdout=json.dumps(registries)),  # registry list
-            _ok(stdout=""),  # cluster delete
-            _ok(stdout=""),  # registry delete
-        ])
+        registries = [
+            _healthy_registry_state(),
+            _healthy_registry_state(container_name="k3d-other-registry"),
+        ]
+        clusters = [
+            _healthy_cluster_state(),
+            _healthy_cluster_state(cluster_name="other-cluster"),
+        ]
+        runner = _runner_with(
+            [
+                _ok(stdout=json.dumps(clusters)),  # cluster list
+                _ok(stdout=json.dumps(registries)),  # registry list
+                _ok(stdout=""),  # cluster delete
+                _ok(stdout=""),  # registry delete
+            ]
+        )
         playground._tear_down(self.settings, runner)
         for call in runner.run.call_args_list:
             argv = call.args[0]
@@ -880,23 +940,27 @@ class TestTeardown(unittest.TestCase):
     def test_continues_after_individual_failure(self) -> None:
         registries = [_healthy_registry_state()]
         clusters = [_healthy_cluster_state()]
-        runner = _runner_with([
-            _ok(stdout=json.dumps(clusters)),  # cluster discovery
-            _ok(stdout=json.dumps(registries)),  # registry discovery
-            _ok(rc=1, stderr="cluster delete failed"),  # cluster delete fails
-            _ok(stdout=""),  # registry delete still attempted
-        ])
+        runner = _runner_with(
+            [
+                _ok(stdout=json.dumps(clusters)),  # cluster discovery
+                _ok(stdout=json.dumps(registries)),  # registry discovery
+                _ok(rc=1, stderr="cluster delete failed"),  # cluster delete fails
+                _ok(stdout=""),  # registry delete still attempted
+            ]
+        )
         with self.assertRaises(playground.PlaygroundError) as ctx:
             playground._tear_down(self.settings, runner)
         self.assertIn("cluster delete", str(ctx.exception))
 
     def test_teardown_attempts_registry_even_when_cluster_discovery_fails(self) -> None:
         registries_payload = json.dumps([_healthy_registry_state()])
-        runner = _runner_with([
-            _ok(rc=1, stderr="cluster discovery failed"),  # cluster list fails
-            _ok(stdout=registries_payload),  # registry discovery succeeds
-            _ok(stdout=""),  # registry delete still attempted
-        ])
+        runner = _runner_with(
+            [
+                _ok(rc=1, stderr="cluster discovery failed"),  # cluster list fails
+                _ok(stdout=registries_payload),  # registry discovery succeeds
+                _ok(stdout=""),  # registry delete still attempted
+            ]
+        )
         with self.assertRaises(playground.PlaygroundError):
             playground._tear_down(self.settings, runner)
 
@@ -905,11 +969,13 @@ class TestTeardown(unittest.TestCase):
         broken = _healthy_registry_state()
         broken["State"] = {"Running": "yes"}  # rejected by _parse_state
         del broken["portMappings"]
-        runner = _runner_with([
-            _ok(stdout=json.dumps([])),  # no cluster
-            _ok(stdout=json.dumps([broken])),
-            _ok(stdout=""),  # registry delete must still be attempted
-        ])
+        runner = _runner_with(
+            [
+                _ok(stdout=json.dumps([])),  # no cluster
+                _ok(stdout=json.dumps([broken])),
+                _ok(stdout=""),  # registry delete must still be attempted
+            ]
+        )
         playground._tear_down(self.settings, runner, stdout=lambda _: None)
         argv_lists = [c.args[0] for c in runner.run.call_args_list]
         self.assertIn(
@@ -919,16 +985,16 @@ class TestTeardown(unittest.TestCase):
     def test_teardown_deletes_cluster_with_unparseable_node_state(self) -> None:
         broken = _healthy_cluster_state()
         broken["nodes"][0]["State"] = {}  # neither Running nor Status
-        runner = _runner_with([
-            _ok(stdout=json.dumps([broken])),
-            _ok(stdout=json.dumps([])),  # no registry
-            _ok(stdout=""),  # cluster delete must still be attempted
-        ])
+        runner = _runner_with(
+            [
+                _ok(stdout=json.dumps([broken])),
+                _ok(stdout=json.dumps([])),  # no registry
+                _ok(stdout=""),  # cluster delete must still be attempted
+            ]
+        )
         playground._tear_down(self.settings, runner, stdout=lambda _: None)
         argv_lists = [c.args[0] for c in runner.run.call_args_list]
-        self.assertIn(
-            ["k3d", "cluster", "delete", playground.CLUSTER_NAME], argv_lists
-        )
+        self.assertIn(["k3d", "cluster", "delete", playground.CLUSTER_NAME], argv_lists)
 
 
 # ---------------------------------------------------------------------------
@@ -950,15 +1016,46 @@ class TestBootstrapOrdering(unittest.TestCase):
             with mock.patch.object(playground, "_ensure_infrastructure"):
                 with mock.patch.object(playground, "_write_kubeconfig"):
                     with mock.patch.object(playground, "_wait_for_nodes_ready"):
-                        with mock.patch.object(playground, "_wait_for_operator_ready", side_effect=lambda *a, **k: order.append("operator")):
-                            with mock.patch.object(playground, "_apply_flux_instance", side_effect=lambda *a, **k: order.append("apply_instance")):
-                                with mock.patch.object(playground, "_wait_for_flux_instance", side_effect=lambda *a, **k: order.append("wait_instance")):
-                                    with mock.patch.object(playground, "_wait_for_flux_controllers"):
-                                        with mock.patch.object(playground, "_wait_for_flux_crds"):
-                                            with mock.patch.object(playground, "_push_reconcile"):
-                                                with mock.patch.object(playground, "_wait_for_smoke_workload"):
-                                                    with mock.patch.object(playground, "_full_health_check", return_value=True):
-                                                        playground._bring_up(self.settings, mock.Mock())
+                        with mock.patch.object(
+                            playground,
+                            "_wait_for_operator_ready",
+                            side_effect=lambda *a, **k: order.append("operator"),
+                        ):
+                            with mock.patch.object(
+                                playground,
+                                "_apply_flux_instance",
+                                side_effect=lambda *a, **k: order.append(
+                                    "apply_instance"
+                                ),
+                            ):
+                                with mock.patch.object(
+                                    playground,
+                                    "_wait_for_flux_instance",
+                                    side_effect=lambda *a, **k: order.append(
+                                        "wait_instance"
+                                    ),
+                                ):
+                                    with mock.patch.object(
+                                        playground, "_wait_for_flux_controllers"
+                                    ):
+                                        with mock.patch.object(
+                                            playground, "_wait_for_flux_crds"
+                                        ):
+                                            with mock.patch.object(
+                                                playground, "_push_reconcile"
+                                            ):
+                                                with mock.patch.object(
+                                                    playground,
+                                                    "_wait_for_smoke_workload",
+                                                ):
+                                                    with mock.patch.object(
+                                                        playground,
+                                                        "_full_health_check",
+                                                        return_value=True,
+                                                    ):
+                                                        playground._bring_up(
+                                                            self.settings, mock.Mock()
+                                                        )
         self.assertLess(order.index("operator"), order.index("apply_instance"))
         self.assertLess(order.index("apply_instance"), order.index("wait_instance"))
 
@@ -970,13 +1067,38 @@ class TestBootstrapOrdering(unittest.TestCase):
                     with mock.patch.object(playground, "_wait_for_nodes_ready"):
                         with mock.patch.object(playground, "_wait_for_operator_ready"):
                             with mock.patch.object(playground, "_apply_flux_instance"):
-                                with mock.patch.object(playground, "_wait_for_flux_instance", side_effect=lambda *a, **k: order.append("wait_instance")):
-                                    with mock.patch.object(playground, "_wait_for_flux_controllers"):
-                                        with mock.patch.object(playground, "_wait_for_flux_crds"):
-                                            with mock.patch.object(playground, "_push_reconcile", side_effect=lambda *a, **k: order.append("push")):
-                                                with mock.patch.object(playground, "_wait_for_smoke_workload"):
-                                                    with mock.patch.object(playground, "_full_health_check", return_value=True):
-                                                        playground._bring_up(self.settings, mock.Mock())
+                                with mock.patch.object(
+                                    playground,
+                                    "_wait_for_flux_instance",
+                                    side_effect=lambda *a, **k: order.append(
+                                        "wait_instance"
+                                    ),
+                                ):
+                                    with mock.patch.object(
+                                        playground, "_wait_for_flux_controllers"
+                                    ):
+                                        with mock.patch.object(
+                                            playground, "_wait_for_flux_crds"
+                                        ):
+                                            with mock.patch.object(
+                                                playground,
+                                                "_push_reconcile",
+                                                side_effect=lambda *a, **k: (
+                                                    order.append("push")
+                                                ),
+                                            ):
+                                                with mock.patch.object(
+                                                    playground,
+                                                    "_wait_for_smoke_workload",
+                                                ):
+                                                    with mock.patch.object(
+                                                        playground,
+                                                        "_full_health_check",
+                                                        return_value=True,
+                                                    ):
+                                                        playground._bring_up(
+                                                            self.settings, mock.Mock()
+                                                        )
         self.assertLess(order.index("wait_instance"), order.index("push"))
 
     def test_helmchart_failed_raises_immediately(self) -> None:
@@ -984,7 +1106,12 @@ class TestBootstrapOrdering(unittest.TestCase):
             "metadata": {"name": "flux-operator"},
             "status": {
                 "conditions": [
-                    {"type": "Failed", "status": "True", "reason": "InstallFailed", "message": "boom"}
+                    {
+                        "type": "Failed",
+                        "status": "True",
+                        "reason": "InstallFailed",
+                        "message": "boom",
+                    }
                 ]
             },
         }
@@ -1059,13 +1186,27 @@ class TestBootstrapOrdering(unittest.TestCase):
 
         all_argvs = [c.args[0] for c in runner.run.call_args_list]
         all_argvs += [c.args[0] for c in runner.run_json.call_args_list]
-        self.assertTrue(any("helm-install-flux-operator" in a for argv in all_argvs for a in argv))
+        self.assertTrue(
+            any("helm-install-flux-operator" in a for argv in all_argvs for a in argv)
+        )
 
     def test_job_failed_raises(self) -> None:
-        helmchart_with_job = {"metadata": {"name": "flux-operator"}, "status": {"jobName": "j"}}
+        helmchart_with_job = {
+            "metadata": {"name": "flux-operator"},
+            "status": {"jobName": "j"},
+        }
         job_failed = {
             "metadata": {"name": "j"},
-            "status": {"conditions": [{"type": "Failed", "status": "True", "reason": "Boom", "message": "x"}]},
+            "status": {
+                "conditions": [
+                    {
+                        "type": "Failed",
+                        "status": "True",
+                        "reason": "Boom",
+                        "message": "x",
+                    }
+                ]
+            },
         }
 
         def run_side_effect(argv, **kw):
@@ -1111,13 +1252,19 @@ class TestHealthCheckPropagation(unittest.TestCase):
         with mock.patch.object(playground, "_registry_state", return_value=None):
             with mock.patch.object(playground, "_cluster_state", return_value=None):
                 with mock.patch.object(playground, "_wait_for_registry_endpoint"):
-                    self.assertFalse(playground._full_health_check(self.settings, _infinite_runner(), stdout=lambda _: None))
+                    self.assertFalse(
+                        playground._full_health_check(
+                            self.settings, _infinite_runner(), stdout=lambda _: None
+                        )
+                    )
 
     def test_full_health_check_does_not_call_diagnostics(self) -> None:
         with mock.patch.object(playground, "_registry_state", return_value=None):
             with mock.patch.object(playground, "_cluster_state", return_value=None):
                 with mock.patch.object(playground, "_diagnose") as diag:
-                    playground._full_health_check(self.settings, _infinite_runner(), stdout=lambda _: None)
+                    playground._full_health_check(
+                        self.settings, _infinite_runner(), stdout=lambda _: None
+                    )
         diag.assert_not_called()
 
     def test_health_check_failure_in_bring_up_propagates(self) -> None:
@@ -1127,14 +1274,34 @@ class TestHealthCheckPropagation(unittest.TestCase):
                     with mock.patch.object(playground, "_wait_for_nodes_ready"):
                         with mock.patch.object(playground, "_wait_for_operator_ready"):
                             with mock.patch.object(playground, "_apply_flux_instance"):
-                                with mock.patch.object(playground, "_wait_for_flux_instance"):
-                                    with mock.patch.object(playground, "_wait_for_flux_controllers"):
-                                        with mock.patch.object(playground, "_wait_for_flux_crds"):
-                                            with mock.patch.object(playground, "_push_reconcile"):
-                                                with mock.patch.object(playground, "_wait_for_smoke_workload"):
-                                                    with mock.patch.object(playground, "_full_health_check", return_value=False):
-                                                        with self.assertRaises(playground.PlaygroundError):
-                                                            playground._bring_up(self.settings, mock.Mock())
+                                with mock.patch.object(
+                                    playground, "_wait_for_flux_instance"
+                                ):
+                                    with mock.patch.object(
+                                        playground, "_wait_for_flux_controllers"
+                                    ):
+                                        with mock.patch.object(
+                                            playground, "_wait_for_flux_crds"
+                                        ):
+                                            with mock.patch.object(
+                                                playground, "_push_reconcile"
+                                            ):
+                                                with mock.patch.object(
+                                                    playground,
+                                                    "_wait_for_smoke_workload",
+                                                ):
+                                                    with mock.patch.object(
+                                                        playground,
+                                                        "_full_health_check",
+                                                        return_value=False,
+                                                    ):
+                                                        with self.assertRaises(
+                                                            playground.PlaygroundError
+                                                        ):
+                                                            playground._bring_up(
+                                                                self.settings,
+                                                                mock.Mock(),
+                                                            )
 
     def test_smoke_pod_on_server_fails_health(self) -> None:
         registry = _registry_state_with_binding(
@@ -1171,31 +1338,41 @@ class TestHealthCheckPropagation(unittest.TestCase):
                 }
             ]
         }
-        runner = _runner_with([
-            _ok(stdout=json.dumps([_healthy_registry_state()])),
-            _ok(stdout=json.dumps([_healthy_cluster_state()])),
-            _ok(stdout=""),  # kubeconfig presence: pretend absent
-            _ok(stdout=json.dumps(nodes)),
-            _ok(stdout=json.dumps(nodes)),
-            _ok(stdout=json.dumps(deployment)),  # operator check
-            _ok(stdout=json.dumps(deployment)),  # fluxinstance
-            _ok(stdout='{"items":[]}'),  # crds
-            _ok(stdout=json.dumps(deployment)),  # controllers
-            _ok(stdout=""),  # flux check
-            _ok(stdout=json.dumps(deployment)),  # ocirepo
-            _ok(stdout=json.dumps(deployment)),  # kustomization
-            _ok(stdout=json.dumps(deployment)),  # deployment
-            _ok(stdout=json.dumps(pods)),  # pods
-        ])
+        runner = _runner_with(
+            [
+                _ok(stdout=json.dumps([_healthy_registry_state()])),
+                _ok(stdout=json.dumps([_healthy_cluster_state()])),
+                _ok(stdout=""),  # kubeconfig presence: pretend absent
+                _ok(stdout=json.dumps(nodes)),
+                _ok(stdout=json.dumps(nodes)),
+                _ok(stdout=json.dumps(deployment)),  # operator check
+                _ok(stdout=json.dumps(deployment)),  # fluxinstance
+                _ok(stdout='{"items":[]}'),  # crds
+                _ok(stdout=json.dumps(deployment)),  # controllers
+                _ok(stdout=""),  # flux check
+                _ok(stdout=json.dumps(deployment)),  # ocirepo
+                _ok(stdout=json.dumps(deployment)),  # kustomization
+                _ok(stdout=json.dumps(deployment)),  # deployment
+                _ok(stdout=json.dumps(pods)),  # pods
+            ]
+        )
         # Provide a kubeconfig so the check sees it.
-        self.settings.context_dir.mkdir(parents=True, exist_ok=True)
-        self.settings.kubeconfig_path.write_text(f"cluster: {playground.CLUSTER_NAME}\n")
+        self.settings.kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings.kubeconfig_path.write_text(
+            f"cluster: {playground.CLUSTER_NAME}\n"
+        )
         with mock.patch.object(playground, "_registry_state", return_value=registry):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
-                with mock.patch.object(playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE):
+                with mock.patch.object(
+                    playground,
+                    "_docker_inspect_image",
+                    return_value=playground.K3S_IMAGE,
+                ):
                     with mock.patch.object(playground, "_flux") as flux:
                         flux.return_value = _ok()
-                        ok = playground._full_health_check(self.settings, _infinite_runner(), stdout=lambda _: None)
+                        ok = playground._full_health_check(
+                            self.settings, _infinite_runner(), stdout=lambda _: None
+                        )
         self.assertFalse(ok)
 
     def test_smoke_pod_on_agent_passes_health(self) -> None:
@@ -1216,9 +1393,11 @@ class TestHealthCheckPropagation(unittest.TestCase):
                     "status": {"conditions": [{"type": "Ready", "status": "True"}]},
                     "spec": {
                         "taints": [
-                            {"key": playground.SERVER_TAINT_KEY,
-                             "value": playground.SERVER_TAINT_VALUE,
-                             "effect": playground.SERVER_TAINT_EFFECT}
+                            {
+                                "key": playground.SERVER_TAINT_KEY,
+                                "value": playground.SERVER_TAINT_VALUE,
+                                "effect": playground.SERVER_TAINT_EFFECT,
+                            }
                         ]
                     },
                 },
@@ -1235,7 +1414,10 @@ class TestHealthCheckPropagation(unittest.TestCase):
         deployment = {
             "metadata": {"name": playground.SMOKE_DEPLOYMENT},
             "spec": {"replicas": 1},
-            "status": {"readyReplicas": 1, "conditions": [{"type": "Available", "status": "True"}]},
+            "status": {
+                "readyReplicas": 1,
+                "conditions": [{"type": "Available", "status": "True"}],
+            },
         }
         pods = {
             "items": [
@@ -1250,7 +1432,9 @@ class TestHealthCheckPropagation(unittest.TestCase):
             "items": [
                 {
                     "metadata": {"name": c},
-                    "status": {"conditions": [{"type": "Established", "status": "True"}]},
+                    "status": {
+                        "conditions": [{"type": "Established", "status": "True"}]
+                    },
                 }
                 for c in playground.EXPECTED_CRDS
             ]
@@ -1300,8 +1484,10 @@ class TestHealthCheckPropagation(unittest.TestCase):
                 },
             }
 
-        self.settings.context_dir.mkdir(parents=True, exist_ok=True)
-        self.settings.kubeconfig_path.write_text(f"cluster: {playground.CLUSTER_NAME}\n")
+        self.settings.kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings.kubeconfig_path.write_text(
+            f"cluster: {playground.CLUSTER_NAME}\n"
+        )
 
         def fake_inspect(container: str, runner: Any) -> str:
             if container == playground.REGISTRY_CONTAINER_NAME:
@@ -1312,9 +1498,13 @@ class TestHealthCheckPropagation(unittest.TestCase):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with mock.patch.object(playground, "_kubectl_json") as kubectl_json:
                     kubectl_json.side_effect = kubectl_side_effect
-                    with mock.patch.object(playground, "_docker_inspect_image", side_effect=fake_inspect):
+                    with mock.patch.object(
+                        playground, "_docker_inspect_image", side_effect=fake_inspect
+                    ):
                         with mock.patch.object(playground, "_flux", return_value=_ok()):
-                            ok = playground._full_health_check(self.settings, _infinite_runner(), stdout=lambda _: None)
+                            ok = playground._full_health_check(
+                                self.settings, _infinite_runner(), stdout=lambda _: None
+                            )
         self.assertTrue(ok)
 
     def test_empty_value_role_label_recognized(self) -> None:
@@ -1328,9 +1518,11 @@ class TestHealthCheckPropagation(unittest.TestCase):
                     "status": {"conditions": [{"type": "Ready", "status": "True"}]},
                     "spec": {
                         "taints": [
-                            {"key": playground.SERVER_TAINT_KEY,
-                             "value": playground.SERVER_TAINT_VALUE,
-                             "effect": playground.SERVER_TAINT_EFFECT}
+                            {
+                                "key": playground.SERVER_TAINT_KEY,
+                                "value": playground.SERVER_TAINT_VALUE,
+                                "effect": playground.SERVER_TAINT_EFFECT,
+                            }
                         ]
                     },
                 },
@@ -1352,17 +1544,25 @@ class TestHealthCheckPropagation(unittest.TestCase):
         )
         cluster = _cluster_state_two_node()
         runner = _runner_with([_ok()])
-        self.settings.context_dir.mkdir(parents=True, exist_ok=True)
-        self.settings.kubeconfig_path.write_text(f"cluster: {playground.CLUSTER_NAME}\n")
+        self.settings.kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings.kubeconfig_path.write_text(
+            f"cluster: {playground.CLUSTER_NAME}\n"
+        )
         with mock.patch.object(playground, "_registry_state", return_value=registry):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with mock.patch.object(playground, "_kubectl_json", return_value=nodes):
-                    with mock.patch.object(playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE):
+                    with mock.patch.object(
+                        playground,
+                        "_docker_inspect_image",
+                        return_value=playground.K3S_IMAGE,
+                    ):
                         with mock.patch.object(playground, "_flux", return_value=_ok()):
                             # Should not raise; topology check passes because the
                             # empty-valued control-plane label still identifies the
                             # server.
-                            ok = playground._full_health_check(self.settings, _infinite_runner(), stdout=lambda _: None)
+                            ok = playground._full_health_check(
+                                self.settings, _infinite_runner(), stdout=lambda _: None
+                            )
         # Even with mocked kubectl, taints are accepted.
         self.assertFalse(ok)  # other checks fail because deployment etc. mocked
 
@@ -1370,12 +1570,18 @@ class TestHealthCheckPropagation(unittest.TestCase):
         nodes = {
             "items": [
                 {
-                    "metadata": {"name": "server-0", "labels": {"node-role.kubernetes.io/control-plane": ""}},
+                    "metadata": {
+                        "name": "server-0",
+                        "labels": {"node-role.kubernetes.io/control-plane": ""},
+                    },
                     "status": {"conditions": [{"type": "Ready", "status": "True"}]},
                     "spec": {"taints": []},  # missing expected taint
                 },
                 {
-                    "metadata": {"name": "agent-0", "labels": {"node-role.kubernetes.io/agent": ""}},
+                    "metadata": {
+                        "name": "agent-0",
+                        "labels": {"node-role.kubernetes.io/agent": ""},
+                    },
                     "status": {"conditions": [{"type": "Ready", "status": "True"}]},
                     "spec": {"taints": []},
                 },
@@ -1388,15 +1594,23 @@ class TestHealthCheckPropagation(unittest.TestCase):
             running=True,
         )
         cluster = _cluster_state_two_node()
-        self.settings.context_dir.mkdir(parents=True, exist_ok=True)
-        self.settings.kubeconfig_path.write_text(f"cluster: {playground.CLUSTER_NAME}\n")
+        self.settings.kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings.kubeconfig_path.write_text(
+            f"cluster: {playground.CLUSTER_NAME}\n"
+        )
         with mock.patch.object(playground, "_registry_state", return_value=registry):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with mock.patch.object(playground, "_kubectl_json", return_value=nodes):
-                    with mock.patch.object(playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE):
+                    with mock.patch.object(
+                        playground,
+                        "_docker_inspect_image",
+                        return_value=playground.K3S_IMAGE,
+                    ):
                         with mock.patch.object(playground, "_flux", return_value=_ok()):
                             # taints check should fail; full_health_check returns False.
-                            ok = playground._full_health_check(self.settings, _infinite_runner(), stdout=lambda _: None)
+                            ok = playground._full_health_check(
+                                self.settings, _infinite_runner(), stdout=lambda _: None
+                            )
         self.assertFalse(ok)
 
     def test_registry_drift_reports_expected_and_actual_port(self) -> None:
@@ -1406,12 +1620,18 @@ class TestHealthCheckPropagation(unittest.TestCase):
             host_port=55150,  # cluster was created against a different port
         )
         cluster = _cluster_state_two_node()
-        self.settings.context_dir.mkdir(parents=True, exist_ok=True)
-        self.settings.kubeconfig_path.write_text(f"cluster: {playground.CLUSTER_NAME}\n")
+        self.settings.kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings.kubeconfig_path.write_text(
+            f"cluster: {playground.CLUSTER_NAME}\n"
+        )
         lines: list[str] = []
         with mock.patch.object(playground, "_registry_state", return_value=registry):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
-                with mock.patch.object(playground, "_docker_inspect_image", return_value=playground.REGISTRY_IMAGE):
+                with mock.patch.object(
+                    playground,
+                    "_docker_inspect_image",
+                    return_value=playground.REGISTRY_IMAGE,
+                ):
                     with mock.patch.object(playground, "_flux", return_value=_ok()):
                         ok = playground._full_health_check(
                             self.settings, _infinite_runner(), stdout=lines.append
@@ -1532,8 +1752,13 @@ class TestDiagnostics(unittest.TestCase):
         runner.default_timeout = 60.0
         playground._diagnose(self.settings, runner, stdout=lambda _: None)
         argv_lists = [c.args[0] for c in runner.run.call_args_list]
-        self.assertTrue(any("helmrelease" in a and "describe" in argv
-                            for argv in argv_lists for a in argv))
+        self.assertTrue(
+            any(
+                "helmrelease" in a and "describe" in argv
+                for argv in argv_lists
+                for a in argv
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1549,12 +1774,31 @@ class TestKubeconfigIsolation(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def test_default_path_is_discovered_by_kubie(self) -> None:
+        self.assertEqual(playground.KUBECONFIG_DIR, Path.home() / ".kube")
+        self.assertEqual(
+            playground.KUBECONFIG_PATH,
+            Path.home() / ".kube" / "k3d-flux-playground.yaml",
+        )
+
     def test_kubeconfig_written_to_expected_path(self) -> None:
         runner = _runner_with([_ok(stdout="apiVersion: v1\nclusters: []\n")])
         playground._write_kubeconfig(self.settings, runner)
         self.assertTrue(self.settings.kubeconfig_path.exists())
+        directory_mode = self.settings.kubeconfig_path.parent.stat().st_mode & 0o777
         mode = self.settings.kubeconfig_path.stat().st_mode & 0o777
+        self.assertEqual(directory_mode, 0o700)
         self.assertEqual(mode, 0o600)
+
+    def test_existing_kube_directory_permissions_are_preserved(self) -> None:
+        self.settings.kubeconfig_path.parent.mkdir(mode=0o755)
+        self.settings.kubeconfig_path.parent.chmod(0o755)
+        runner = _runner_with([_ok(stdout="apiVersion: v1\nclusters: []\n")])
+
+        playground._write_kubeconfig(self.settings, runner)
+
+        mode = self.settings.kubeconfig_path.parent.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o755)
 
     def test_kubectl_and_flux_carry_kubeconfig(self) -> None:
         runner = _runner_with([_ok(stdout='{"items":[]}')])
@@ -1663,9 +1907,15 @@ class TestPushArtifact(unittest.TestCase):
     def test_push_uses_host_url_and_insecure_registry(self) -> None:
         runner = _infinite_runner(_ok(stdout=json.dumps({"digest": "sha256:abc"})))
         with mock.patch.object(playground, "_check_registry_reachable"):
-            with mock.patch.object(playground, "_stage_working_tree", return_value=self.tmp / "staging"):
+            with mock.patch.object(
+                playground, "_stage_working_tree", return_value=self.tmp / "staging"
+            ):
                 (self.tmp / "staging").mkdir()
-                with mock.patch.object(playground, "_git_source_metadata", return_value=("file:///repo", "main@sha1:0")):
+                with mock.patch.object(
+                    playground,
+                    "_git_source_metadata",
+                    return_value=("file:///repo", "main@sha1:0"),
+                ):
                     digest = playground._push_artifact(self.settings, runner)
         # Find the push call: only one non-mock run call.
         push_call = None
@@ -1675,7 +1925,10 @@ class TestPushArtifact(unittest.TestCase):
                 push_call = argv
                 break
         self.assertIsNotNone(push_call)
-        self.assertIn(f"oci://127.0.0.1:{self.settings.registry_port}/flux-playground/manifests:dev", push_call)
+        self.assertIn(
+            f"oci://127.0.0.1:{self.settings.registry_port}/flux-playground/manifests:dev",
+            push_call,
+        )
         self.assertIn("--insecure-registry", push_call)
         self.assertEqual(digest, "sha256:abc")
 
@@ -1685,9 +1938,15 @@ class TestPushArtifact(unittest.TestCase):
             _ok(stdout=json.dumps({"digest": "sha256:222"})),
         )
         with mock.patch.object(playground, "_check_registry_reachable"):
-            with mock.patch.object(playground, "_stage_working_tree", return_value=self.tmp / "staging"):
+            with mock.patch.object(
+                playground, "_stage_working_tree", return_value=self.tmp / "staging"
+            ):
                 (self.tmp / "staging").mkdir()
-                with mock.patch.object(playground, "_git_source_metadata", return_value=("file:///repo", "main@sha1:0")):
+                with mock.patch.object(
+                    playground,
+                    "_git_source_metadata",
+                    return_value=("file:///repo", "main@sha1:0"),
+                ):
                     digest_a = playground._push_artifact(self.settings, runner)
                     digest_b = playground._push_artifact(self.settings, runner)
         self.assertEqual(digest_a, "sha256:111")
@@ -1722,7 +1981,13 @@ class TestMakeInterface(unittest.TestCase):
         for line in ("up:", "push:", "check:", "down:", "reset:", "test:"):
             self.assertIn(line, text)
         # Aliases must not remain.
-        for alias in ("playground.up:", "playground.push:", "playground.check:", "playground.down:", "playground.reset:"):
+        for alias in (
+            "playground.up:",
+            "playground.push:",
+            "playground.check:",
+            "playground.down:",
+            "playground.reset:",
+        ):
             self.assertNotIn(alias, text)
 
     def test_makefile_forwards_args(self) -> None:
@@ -1731,9 +1996,12 @@ class TestMakeInterface(unittest.TestCase):
 
     def test_invoke_collection_exports(self) -> None:
         from tasks import ns  # type: ignore
+
         self.assertEqual(set(ns.collections.keys()), {"playground"})
         inner = ns.collections["playground"]
-        self.assertEqual(set(inner.tasks.keys()), {"up", "push", "check", "down", "reset"})
+        self.assertEqual(
+            set(inner.tasks.keys()), {"up", "push", "check", "down", "reset"}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1763,11 +2031,15 @@ class TestRepoStructure(unittest.TestCase):
     def test_manifest_yaml_files_start_with_dashes(self) -> None:
         """YAML frontmatter scan is scoped to repo-owned manifest trees."""
         yaml_files = _manifest_yaml_files(REPO_ROOT)
-        self.assertTrue(yaml_files, "expected at least one manifest under config/ or clusters/")
+        self.assertTrue(
+            yaml_files, "expected at least one manifest under config/ or clusters/"
+        )
         for path in yaml_files:
             with self.subTest(path=path):
                 first_line = path.read_text().splitlines()[0]
-                self.assertTrue(first_line.startswith("---"), f"{path} must begin with ---")
+                self.assertTrue(
+                    first_line.startswith("---"), f"{path} must begin with ---"
+                )
 
     def test_yaml_outside_manifest_trees_is_ignored(self) -> None:
         """Stray YAML under .context, .venv, or caches must not be discovered.
@@ -1904,7 +2176,9 @@ class TestRepoStructure(unittest.TestCase):
     def test_flux_instance_pins_distribution(self) -> None:
         text = FLUX_INSTANCE_MANIFEST_PATH.read_text()
         self.assertIn('version: "2.9.4"', text)
-        self.assertIn("oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests", text)
+        self.assertIn(
+            "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests", text
+        )
         self.assertIn("size: small", text)
         self.assertIn("source-controller", text)
         self.assertIn("kustomize-controller", text)
@@ -1931,7 +2205,9 @@ class TestK3dJsonParsing(unittest.TestCase):
         self.assertTrue(state.running)
 
     def test_registry_stopped_when_state_running_false(self) -> None:
-        entry = _healthy_registry_state(state_block={"Running": False, "Status": "exited"})
+        entry = _healthy_registry_state(
+            state_block={"Running": False, "Status": "exited"}
+        )
         state = playground._find_registry_state(
             [entry],
             container_name=playground.REGISTRY_CONTAINER_NAME,
@@ -1942,7 +2218,9 @@ class TestK3dJsonParsing(unittest.TestCase):
 
     def test_running_field_takes_precedence_over_status(self) -> None:
         # Running=true but Status=exited: trust Running.
-        entry = _healthy_registry_state(state_block={"Running": True, "Status": "exited"})
+        entry = _healthy_registry_state(
+            state_block={"Running": True, "Status": "exited"}
+        )
         state = playground._find_registry_state(
             [entry],
             container_name=playground.REGISTRY_CONTAINER_NAME,
@@ -1978,7 +2256,9 @@ class TestK3dJsonParsing(unittest.TestCase):
         self.assertTrue(cluster.has_load_balancer)
 
     def test_load_balancer_absent_field_means_false(self) -> None:
-        entry = _healthy_cluster_state(has_load_balancer=False, include_load_balancer_field=False)
+        entry = _healthy_cluster_state(
+            has_load_balancer=False, include_load_balancer_field=False
+        )
         cluster = playground._find_cluster_state(
             [entry], cluster_name=playground.CLUSTER_NAME
         )
@@ -2033,7 +2313,9 @@ class TestDockerInspectImage(unittest.TestCase):
         )
         cluster = _cluster_state_two_node()
         inspect_expected = _standard_inspect_expected()
-        inspect_expected[playground.REGISTRY_CONTAINER_NAME] = "docker.io/library/registry:3"
+        inspect_expected[playground.REGISTRY_CONTAINER_NAME] = (
+            "docker.io/library/registry:3"
+        )
         with mock.patch.object(playground, "_registry_state", return_value=registry):
             with mock.patch.object(playground, "_cluster_state", return_value=cluster):
                 with self.assertRaises(playground.PlaygroundError) as ctx:
@@ -2172,7 +2454,9 @@ class TestHelmChartFailedFast(unittest.TestCase):
         runner.run_json.side_effect = run_json_side_effect
         runner.default_timeout = 60.0
 
-        with mock.patch.object(playground.time, "monotonic", side_effect=[0.0, 1.0, 2.0]):
+        with mock.patch.object(
+            playground.time, "monotonic", side_effect=[0.0, 1.0, 2.0]
+        ):
             with mock.patch.object(playground.time, "sleep"):
                 with self.assertRaises(playground.PlaygroundError) as ctx:
                     playground._wait_for_operator_ready(self.settings, runner)
@@ -2327,9 +2611,7 @@ class TestCompletedPodClassification(unittest.TestCase):
 
     def test_zero_exit_succeeded_is_healthy(self) -> None:
         pods = self._succeeded_pod([0, 0])
-        self.assertEqual(
-            playground._classify_pods(pods)["unhealthy"], []
-        )
+        self.assertEqual(playground._classify_pods(pods)["unhealthy"], [])
 
     def test_nonzero_exit_succeeded_is_unhealthy(self) -> None:
         pods = self._succeeded_pod([0, 2])
@@ -2388,17 +2670,538 @@ class TestRepoContent(unittest.TestCase):
                     "make playground.up", text, f"{path} references make playground.up"
                 )
                 self.assertNotIn(
-                    "make playground.push", text, f"{path} references make playground.push"
+                    "make playground.push",
+                    text,
+                    f"{path} references make playground.push",
                 )
                 self.assertNotIn(
-                    "make playground.check", text, f"{path} references make playground.check"
+                    "make playground.check",
+                    text,
+                    f"{path} references make playground.check",
                 )
                 self.assertNotIn(
-                    "make playground.down", text, f"{path} references make playground.down"
+                    "make playground.down",
+                    text,
+                    f"{path} references make playground.down",
                 )
                 self.assertNotIn(
-                    "make playground.reset", text, f"{path} references make playground.reset"
+                    "make playground.reset",
+                    text,
+                    f"{path} references make playground.reset",
                 )
+
+    def test_readme_alternative_install_command_is_kubeconfig_safe(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text()
+        self.assertIn(
+            '--kubeconfig="$HOME/.kube/k3d-flux-playground.yaml"',
+            readme,
+            "README's direct `flux install` example must pin the playground kubeconfig",
+        )
+        # The full registry alias must remain present.
+        self.assertIn("k3d-flux-playground-registry:5000", readme)
+        # The obsolete shortened alias must not be reintroduced.
+        self.assertNotIn("k3d-flux-playground-reg:5000", readme)
+
+    def test_readme_alternative_install_block_is_intact(self) -> None:
+        """Guard against accidentally removing the explicit kubeconfig line."""
+        readme = (REPO_ROOT / "README.md").read_text()
+        self.assertIn("flux install \\", readme)
+        # The unsafe standalone sequence without the kubeconfig flag must be absent.
+        self.assertNotRegex(
+            readme,
+            r"flux install\s*\\\s*\n\s*--version=",
+            "README's direct `flux install` example lost its --kubeconfig line",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Strict registry host-port parsing
+# ---------------------------------------------------------------------------
+
+
+class TestParseHostPort(unittest.TestCase):
+    def _call(self, value: Any) -> int:
+        return playground._parse_host_port(value)
+
+    def test_integer_value(self) -> None:
+        self.assertEqual(self._call(5001), 5001)
+
+    def test_numeric_string_value(self) -> None:
+        self.assertEqual(self._call("5001"), 5001)
+
+    def test_rejects_boolean(self) -> None:
+        for bad in (True, False):
+            with self.subTest(value=bad):
+                with self.assertRaises(playground.PlaygroundError) as ctx:
+                    self._call(bad)
+                self.assertIn(repr(bad), str(ctx.exception))
+
+    def test_rejects_float_even_when_integral(self) -> None:
+        for bad in (5001.0, 5001.9, 0.0):
+            with self.subTest(value=bad):
+                with self.assertRaises(playground.PlaygroundError):
+                    self._call(bad)
+
+    def test_rejects_non_numeric_string(self) -> None:
+        for bad in ("abc", "5001x", "", "  "):
+            with self.subTest(value=bad):
+                with self.assertRaises(playground.PlaygroundError):
+                    self._call(bad)
+
+    def test_rejects_out_of_range(self) -> None:
+        for bad in (0, -1, 65536, 100000):
+            with self.subTest(value=bad):
+                with self.assertRaises(playground.PlaygroundError):
+                    self._call(bad)
+
+    def test_rejects_lists_and_objects(self) -> None:
+        for bad in ([5001], {"port": 5001}, None):
+            with self.subTest(value=bad):
+                with self.assertRaises(playground.PlaygroundError):
+                    self._call(bad)
+
+
+class TestParseHostBinding(unittest.TestCase):
+    def _assert_reset_guidance(self, entry: dict[str, Any], *, label: str) -> None:
+        with self.assertRaises(playground.PlaygroundError) as ctx:
+            playground._parse_host_binding(entry)
+        message = str(ctx.exception)
+        self.assertIn("make reset", message, f"{label}: missing reset guidance")
+        self.assertIn("Run `make reset`.", message, f"{label}: malformed reset suffix")
+
+    def test_successful_binding_returns_required_types(self) -> None:
+        entry = {
+            "portMappings": {
+                "5000/tcp": [
+                    {"HostIp": "127.0.0.1", "HostPort": "5001"}
+                ]
+            }
+        }
+        host_ip, host_port = playground._parse_host_binding(entry)
+        self.assertEqual(host_ip, "127.0.0.1")
+        self.assertEqual(host_port, 5001)
+        self.assertIsInstance(host_ip, str)
+        self.assertIsInstance(host_port, int)
+
+    def test_numeric_string_host_port_accepted(self) -> None:
+        entry = {
+            "portMappings": {
+                "5000/tcp": [
+                    {"HostIp": "0.0.0.0", "HostPort": "5500"}
+                ]
+            }
+        }
+        _, host_port = playground._parse_host_binding(entry)
+        self.assertEqual(host_port, 5500)
+
+    def test_floating_point_host_port_rejected(self) -> None:
+        entry = {
+            "portMappings": {
+                "5000/tcp": [{"HostIp": "127.0.0.1", "HostPort": 5001.9}]
+            }
+        }
+        with self.assertRaises(playground.PlaygroundError) as ctx:
+            playground._parse_host_binding(entry)
+        self.assertIn("5001.9", str(ctx.exception))
+        self.assertIn("make reset", str(ctx.exception))
+
+    def test_missing_port_mappings_resets(self) -> None:
+        self._assert_reset_guidance({}, label="missing portMappings")
+
+    def test_missing_5000_tcp_resets(self) -> None:
+        self._assert_reset_guidance(
+            {"portMappings": {}}, label="missing 5000/tcp"
+        )
+
+    def test_empty_binding_list_resets(self) -> None:
+        self._assert_reset_guidance(
+            {"portMappings": {"5000/tcp": []}}, label="empty list"
+        )
+
+    def test_non_list_binding_resets(self) -> None:
+        self._assert_reset_guidance(
+            {"portMappings": {"5000/tcp": {}}}, label="non-list binding"
+        )
+
+    def test_multiple_bindings_resets(self) -> None:
+        self._assert_reset_guidance(
+            {
+                "portMappings": {
+                    "5000/tcp": [
+                        {"HostIp": "127.0.0.1", "HostPort": "5001"},
+                        {"HostIp": "127.0.0.1", "HostPort": "5002"},
+                    ]
+                }
+            },
+            label="multiple bindings",
+        )
+
+    def test_non_object_binding_resets(self) -> None:
+        self._assert_reset_guidance(
+            {"portMappings": {"5000/tcp": ["not-a-dict"]}},
+            label="non-object binding",
+        )
+
+    def test_missing_host_ip_resets(self) -> None:
+        self._assert_reset_guidance(
+            {"portMappings": {"5000/tcp": [{"HostPort": "5001"}]}},
+            label="missing HostIp",
+        )
+
+    def test_empty_host_ip_resets(self) -> None:
+        self._assert_reset_guidance(
+            {"portMappings": {"5000/tcp": [{"HostIp": "", "HostPort": "5001"}]}},
+            label="empty HostIp",
+        )
+
+    def test_missing_host_port_resets(self) -> None:
+        self._assert_reset_guidance(
+            {"portMappings": {"5000/tcp": [{"HostIp": "127.0.0.1"}]}},
+            label="missing HostPort",
+        )
+
+    def test_empty_host_port_resets(self) -> None:
+        self._assert_reset_guidance(
+            {
+                "portMappings": {
+                    "5000/tcp": [{"HostIp": "127.0.0.1", "HostPort": ""}]
+                }
+            },
+            label="empty HostPort",
+        )
+
+    def test_boolean_host_port_resets(self) -> None:
+        self._assert_reset_guidance(
+            {
+                "portMappings": {
+                    "5000/tcp": [{"HostIp": "127.0.0.1", "HostPort": True}]
+                }
+            },
+            label="boolean HostPort",
+        )
+
+    def test_non_numeric_host_port_resets(self) -> None:
+        self._assert_reset_guidance(
+            {
+                "portMappings": {
+                    "5000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "abc"}]
+                }
+            },
+            label="non-numeric HostPort",
+        )
+
+    def test_out_of_range_host_port_resets(self) -> None:
+        self._assert_reset_guidance(
+            {
+                "portMappings": {
+                    "5000/tcp": [{"HostIp": "127.0.0.1", "HostPort": 0}]
+                }
+            },
+            label="port 0",
+        )
+        self._assert_reset_guidance(
+            {
+                "portMappings": {
+                    "5000/tcp": [{"HostIp": "127.0.0.1", "HostPort": 65536}]
+                }
+            },
+            label="port 65536",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cluster counter parser
+# ---------------------------------------------------------------------------
+
+
+class TestRequireInt(unittest.TestCase):
+    def test_valid_positive_integer(self) -> None:
+        self.assertEqual(playground._require_int({"v": 1}, field="v"), 1)
+
+    def test_valid_zero(self) -> None:
+        self.assertEqual(playground._require_int({"v": 0}, field="v"), 0)
+
+    def test_rejects_missing_field(self) -> None:
+        with self.assertRaises(playground.PlaygroundError) as ctx:
+            playground._require_int({}, field="v")
+        self.assertIn("v", str(ctx.exception))
+
+    def test_rejects_boolean(self) -> None:
+        for bad in (True, False):
+            with self.subTest(value=bad):
+                with self.assertRaises(playground.PlaygroundError) as ctx:
+                    playground._require_int({"v": bad}, field="v")
+                self.assertIn("boolean", str(ctx.exception))
+
+    def test_rejects_string(self) -> None:
+        with self.assertRaises(playground.PlaygroundError) as ctx:
+            playground._require_int({"v": "1"}, field="v")
+        self.assertIn("str", str(ctx.exception))
+
+    def test_rejects_float(self) -> None:
+        with self.assertRaises(playground.PlaygroundError) as ctx:
+            playground._require_int({"v": 1.0}, field="v")
+        self.assertIn("float", str(ctx.exception))
+
+    def test_rejects_negative(self) -> None:
+        with self.assertRaises(playground.PlaygroundError):
+            playground._require_int({"v": -1}, field="v")
+
+    def test_rejects_list_and_object(self) -> None:
+        for bad in ([1], {"x": 1}):
+            with self.subTest(value=bad):
+                with self.assertRaises(playground.PlaygroundError):
+                    playground._require_int({"v": bad}, field="v")
+
+
+class TestFindClusterStateParserErrors(unittest.TestCase):
+    def test_invalid_counter_raises_playground_error(self) -> None:
+        entry = {
+            "name": playground.CLUSTER_NAME,
+            "serversCount": 1,
+            "agentsCount": 1,
+            "serversRunning": 1,
+            "agentsRunning": "not-a-number",
+        }
+        with self.assertRaises(playground.PlaygroundError) as ctx:
+            playground._find_cluster_state([entry], cluster_name=playground.CLUSTER_NAME)
+        self.assertIn("agentsRunning", str(ctx.exception))
+
+    def test_zero_running_kept_for_restart_path(self) -> None:
+        entry = {
+            "name": playground.CLUSTER_NAME,
+            "serversCount": 1,
+            "agentsCount": 1,
+            "serversRunning": 0,
+            "agentsRunning": 0,
+        }
+        cluster = playground._find_cluster_state(
+            [entry], cluster_name=playground.CLUSTER_NAME
+        )
+        self.assertIsNotNone(cluster)
+        self.assertEqual(cluster.servers_running, 0)
+
+
+# ---------------------------------------------------------------------------
+# Health-check error propagation
+# ---------------------------------------------------------------------------
+
+
+class TestHealthCheckParserErrors(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.settings = _make_settings(self.tmp)
+        self.tmp.joinpath(".kube").mkdir(parents=True, exist_ok=True)
+        self.kubeconfig_path = self.tmp / ".kube" / "k3d-flux-playground.yaml"
+        self.kubeconfig_path.write_text(
+            f"clusters:\n- name: {playground.CLUSTER_NAME}\n"
+        )
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _read_only_patches(self) -> list[tuple[Any, str]]:
+        """Mocks for every mutating lifecycle helper (patcher, name)."""
+        return [
+            (mock.patch.object(playground, "_ensure_infrastructure"), "_ensure_infrastructure"),
+            (mock.patch.object(playground, "_ensure_registry_running"), "_ensure_registry_running"),
+            (mock.patch.object(playground, "_ensure_cluster_running"), "_ensure_cluster_running"),
+            (mock.patch.object(playground, "_create_registry"), "_create_registry"),
+            (mock.patch.object(playground, "_create_cluster"), "_create_cluster"),
+            (mock.patch.object(playground, "_tear_down"), "_tear_down"),
+            (mock.patch.object(playground, "_wait_for_registry_endpoint"), "_wait_for_registry_endpoint"),
+            (mock.patch.object(playground, "_write_kubeconfig"), "_write_kubeconfig"),
+        ]
+
+    def _passing_kubectl_json(self) -> Any:
+        """Harmless kubectl payloads that satisfy every check that reaches them."""
+        def side_effect(*all_args: Any, **k: Any) -> Any:
+            args = all_args[2:] if len(all_args) >= 2 else all_args
+            joined = " ".join(args)
+            if "helmchart" in joined:
+                return {
+                    "metadata": {"name": "flux-operator"},
+                    "status": {"jobName": "helm-install-flux-operator"},
+                }
+            if "job/" in joined:
+                return {
+                    "metadata": {"name": "helm-install-flux-operator"},
+                    "status": {"conditions": [{"type": "Complete", "status": "True"}]},
+                }
+            if "fluxinstance" in joined:
+                return {"status": {"conditions": [{"type": "Ready", "status": "True"}]}}
+            if "ocirepository" in joined:
+                return {"status": {"conditions": [{"type": "Ready", "status": "True"}]}}
+            if "kustomization" in joined:
+                return {"status": {"conditions": [{"type": "Ready", "status": "True"}]}}
+            if "nodes" in args:
+                return {"items": []}
+            if "crds" in args:
+                return {
+                    "items": [
+                        {
+                            "metadata": {"name": c},
+                            "status": {"conditions": [{"type": "Established", "status": "True"}]},
+                        }
+                        for c in playground.EXPECTED_CRDS
+                    ]
+                }
+            if "pods" in args:
+                return {"items": []}
+            return {
+                "metadata": {"name": "any"},
+                "spec": {"replicas": 1},
+                "status": {
+                    "readyReplicas": 1,
+                    "conditions": [{"type": "Available", "status": "True"}],
+                },
+            }
+
+        return side_effect
+
+    def test_registry_parser_error_surfaces_and_continues(self) -> None:
+        registry_bad = mock.Mock(
+            side_effect=playground.PlaygroundError(
+                "k3d registry JSON is missing the 5000/tcp port mapping."
+            )
+        )
+        cluster = _cluster_state_two_node()
+        flux_mock = mock.Mock(return_value=_ok())
+
+        mutating_mocks: list[mock.Mock] = []
+        with mock.patch.object(playground, "_registry_state", registry_bad):
+            with mock.patch.object(playground, "_cluster_state", return_value=cluster):
+                with mock.patch.object(playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE):
+                    with mock.patch.object(
+                        playground, "_kubectl_json",
+                        side_effect=self._passing_kubectl_json(),
+                    ):
+                        with mock.patch.object(playground, "_flux", flux_mock):
+                            for patcher, _name in self._read_only_patches():
+                                mutating_mocks.append(patcher.start())
+                            with mock.patch.object(playground, "_write_kubeconfig") as write_kubeconfig:
+                                with mock.patch.object(playground, "_wait_for_registry_endpoint"):
+                                    output: list[str] = []
+                                    ok = playground._full_health_check(
+                                        self.settings,
+                                        mock.Mock(),
+                                        stdout=output.append,
+                                    )
+                            write_kubeconfig.assert_not_called()
+                            for patcher, _name in self._read_only_patches():
+                                patcher.stop()
+        self.assertFalse(ok)
+        joined = "\n".join(output)
+        # Original parser message is surfaced.
+        self.assertIn("5000/tcp port mapping", joined)
+        # The two registry-related checks are marked failed.
+        self.assertIn("registry running", joined)
+        self.assertIn("registry image and binding", joined)
+        # Continuation is demonstrated by the later ``flux check`` running.
+        self.assertIn("flux check", joined)
+        self.assertTrue(flux_mock.called, "later ``flux check`` must run")
+        # Read-only contract: no mutating lifecycle helper was invoked.
+        for mock_obj in mutating_mocks:
+            self.assertFalse(
+                mock_obj.called,
+                "mutating lifecycle helper must not be called by make check",
+            )
+
+    def test_cluster_parser_error_surfaces_and_continues(self) -> None:
+        cluster_bad = mock.Mock(
+            side_effect=playground.PlaygroundError(
+                "k3d field 'serversCount' must be an integer, got boolean True."
+            )
+        )
+        registry_state = _registry_state_with_binding(
+            host_ip="127.0.0.1",
+            host_port=self.settings.registry_port,
+        )
+        flux_mock = mock.Mock(return_value=_ok())
+
+        mutating_mocks: list[mock.Mock] = []
+        with mock.patch.object(playground, "_registry_state", return_value=registry_state):
+            with mock.patch.object(playground, "_cluster_state", cluster_bad):
+                with mock.patch.object(playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE):
+                    with mock.patch.object(
+                        playground, "_kubectl_json",
+                        side_effect=self._passing_kubectl_json(),
+                    ):
+                        with mock.patch.object(playground, "_flux", flux_mock):
+                            for patcher, _name in self._read_only_patches():
+                                mutating_mocks.append(patcher.start())
+                            with mock.patch.object(playground, "_write_kubeconfig") as write_kubeconfig:
+                                with mock.patch.object(playground, "_wait_for_registry_endpoint"):
+                                    output = []
+                                    ok = playground._full_health_check(
+                                        self.settings,
+                                        mock.Mock(),
+                                        stdout=output.append,
+                                    )
+                            write_kubeconfig.assert_not_called()
+                            for patcher, _name in self._read_only_patches():
+                                patcher.stop()
+        self.assertFalse(ok)
+        joined = "\n".join(output)
+        # Field name surfaces in the original error.
+        self.assertIn("serversCount", joined)
+        # Cluster-related checks marked failed.
+        self.assertIn("cluster running", joined)
+        self.assertIn("cluster topology and images", joined)
+        # Continuation via later ``flux check``.
+        self.assertIn("flux check", joined)
+        self.assertTrue(flux_mock.called, "later ``flux check`` must run")
+        for mock_obj in mutating_mocks:
+            self.assertFalse(
+                mock_obj.called,
+                "mutating lifecycle helper must not be called by make check",
+            )
+
+
+# ---------------------------------------------------------------------------
+# CommandRunner input contract
+# ---------------------------------------------------------------------------
+
+
+class TestCommandRunnerInputContract(unittest.TestCase):
+    def test_string_input_forwarded_with_text(self) -> None:
+        runner = playground.CommandRunner()
+        with mock.patch("subprocess.run") as patched:
+            patched.return_value = _ok(stdout="")
+            runner.run(["cat"], input="hello")
+            patched.assert_called_once()
+            kwargs = patched.call_args.kwargs
+            self.assertEqual(kwargs["input"], "hello")
+            self.assertTrue(kwargs["text"])
+            self.assertFalse(kwargs["shell"])
+
+    def test_bytes_input_rejected(self) -> None:
+        runner = playground.CommandRunner()
+        with self.assertRaises(playground.PlaygroundError) as ctx:
+            runner.run(["cat"], input=b"hello")
+        self.assertIn("text input", str(ctx.exception))
+        self.assertIn("bytes", str(ctx.exception))
+
+    def test_none_input_accepted(self) -> None:
+        runner = playground.CommandRunner()
+        with mock.patch("subprocess.run") as patched:
+            patched.return_value = _ok(stdout="")
+            runner.run(["cat"], input=None)
+            self.assertIsNone(patched.call_args.kwargs["input"])
+
+    def test_keyboard_interrupt_propagates(self) -> None:
+        runner = playground.CommandRunner()
+        with mock.patch("subprocess.run") as patched:
+            patched.side_effect = KeyboardInterrupt()
+            with self.assertRaises(KeyboardInterrupt):
+                runner.run(["cat"])
+
+    def test_system_exit_propagates(self) -> None:
+        runner = playground.CommandRunner()
+        with mock.patch("subprocess.run") as patched:
+            patched.side_effect = SystemExit(1)
+            with self.assertRaises(SystemExit):
+                runner.run(["cat"])
 
 
 if __name__ == "__main__":

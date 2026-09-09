@@ -49,7 +49,7 @@ requiring a toolchain downgrade.
                                        ▼
                         ┌────────────────────────────────────────┐
                         │ k3d registry container                  │
-                        │ (oci://k3d-flux-playground-reg:5000)   │
+                        │ k3d-flux-playground-registry:5000       │
                         └────────────────────────────────────────┘
                                        │
                                        ▼
@@ -83,6 +83,51 @@ vendor artifact `oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests`
 (declared in `config/flux/flux-instance.yaml`). The artifact is a
 version bundle; `spec.distribution.version` selects the `flux/v2.9.4`
 content inside it.
+
+### Why the Flux Operator is in place
+
+`fluxcd.controlplane.io`, `source.toolkit.fluxcd.io`, and
+`kustomize.toolkit.fluxcd.io` are Kubernetes **API groups**, not
+namespaces. All of the playground resources still live in the
+`flux-system` namespace. The split is intentional:
+
+- `fluxcd.controlplane.io/v1` is the API group for the
+  ControlPlane-maintained **Flux Operator**, which owns the operator's
+  lifecycle API and defines `FluxInstance`. The CRD is named
+  `fluxinstances.fluxcd.controlplane.io`.
+- `source.toolkit.fluxcd.io/v1` and `kustomize.toolkit.fluxcd.io/v1`
+  are the upstream Flux **GitOps Toolkit** API groups, served by the
+  Flux controllers that the operator installs.
+
+The operator owns the lifecycle API while the operator installs upstream
+Flux controllers and their toolkit API groups. This split is documented
+by the [Flux project](https://fluxcd.io/flux/installation/) as an
+open-source ecosystem alternative to direct `flux install` bootstrap.
+
+The direct alternative would be to remove the operator and the
+`FluxInstance`, then install the controllers directly. The command is
+shown with an explicit `--kubeconfig` so it cannot accidentally target
+the user's default Kubernetes context; it is safe to copy verbatim
+because it only operates against the playground cluster:
+
+```bash
+flux install \
+  --kubeconfig="$HOME/.kube/k3d-flux-playground.yaml" \
+  --version=2.9.4 \
+  --components=source-controller,kustomize-controller,helm-controller,notification-controller
+```
+
+This is an architectural alternative documented for context, **not** part
+of the playground workflow. FRO-180 requires the production-like
+Flux Operator and Helm Controller bootstrap path; that is why the
+playground retains the operator.
+
+That approach is **not** used here because it would stop exercising the
+production-like Helm Controller bootstrap that the ticket requires, and
+`flux bootstrap` would introduce a remote Git repository and credentials
+that the playground deliberately avoids. The community Flux Helm chart
+is best-effort, so the operator remains the stronger vendor-guidance
+choice for this playground.
 
 ## Normal workflow
 
@@ -151,15 +196,19 @@ anything: it destroys the registry and binds the resolved port afresh.
 | Cluster           | `flux-playground`                | k3d                                |
 | Registry          | `flux-playground-registry`       | k3d                                |
 | Registry container| `k3d-flux-playground-registry`   | Docker network alias               |
-| Kubeconfig        | `.context/kubeconfig-flux-playground.yaml` | `0600`, isolated       |
+| Kubeconfig        | `~/.kube/k3d-flux-playground.yaml` | `0600`, isolated       |
 | Flux namespace    | `flux-system`                    |                                    |
 | OCIRepository     | `playground`                     | in `flux-system`                   |
 | Kustomization     | `playground`                     | in `flux-system`                   |
 
-The Kubeconfig is isolated: every `kubectl` and `flux` invocation passes
-`--kubeconfig=<absolute .context path>`. The default `KUBECONFIG`
+The kubeconfig is isolated: every `kubectl` and `flux` invocation passes
+`--kubeconfig="$HOME/.kube/k3d-flux-playground.yaml"`. The Python workflow
+resolves `$HOME` to an absolute path before constructing command arguments;
+it does not rely on shell tilde expansion. The default `KUBECONFIG`
 environment variable and the user's default Kubernetes context are never
-touched.
+touched. Kubie's default `~/.kube/*.yaml` glob discovers the generated
+file, so `kubie ctx` can select the `k3d-flux-playground` context after
+`make up`.
 
 ## Lifecycle state machine
 
