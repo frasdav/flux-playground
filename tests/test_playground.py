@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -2988,6 +2989,17 @@ class TestFindClusterStateParserErrors(unittest.TestCase):
 
 
 class TestHealthCheckParserErrors(unittest.TestCase):
+    MUTATING_HELPERS: tuple[str, ...] = (
+        "_ensure_infrastructure",
+        "_ensure_registry_running",
+        "_ensure_cluster_running",
+        "_create_registry",
+        "_create_cluster",
+        "_tear_down",
+        "_wait_for_registry_endpoint",
+        "_write_kubeconfig",
+    )
+
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.settings = _make_settings(self.tmp)
@@ -3000,18 +3012,14 @@ class TestHealthCheckParserErrors(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _read_only_patches(self) -> list[tuple[Any, str]]:
-        """Mocks for every mutating lifecycle helper (patcher, name)."""
-        return [
-            (mock.patch.object(playground, "_ensure_infrastructure"), "_ensure_infrastructure"),
-            (mock.patch.object(playground, "_ensure_registry_running"), "_ensure_registry_running"),
-            (mock.patch.object(playground, "_ensure_cluster_running"), "_ensure_cluster_running"),
-            (mock.patch.object(playground, "_create_registry"), "_create_registry"),
-            (mock.patch.object(playground, "_create_cluster"), "_create_cluster"),
-            (mock.patch.object(playground, "_tear_down"), "_tear_down"),
-            (mock.patch.object(playground, "_wait_for_registry_endpoint"), "_wait_for_registry_endpoint"),
-            (mock.patch.object(playground, "_write_kubeconfig"), "_write_kubeconfig"),
-        ]
+    def _patch_mutating_helpers(
+        self, stack: ExitStack
+    ) -> dict[str, mock.Mock]:
+        """Register every mutating lifecycle helper on ``stack``."""
+        return {
+            name: stack.enter_context(mock.patch.object(playground, name))
+            for name in self.MUTATING_HELPERS
+        }
 
     def _passing_kubectl_json(self) -> Any:
         """Harmless kubectl payloads that satisfy every check that reaches them."""
@@ -3068,28 +3076,26 @@ class TestHealthCheckParserErrors(unittest.TestCase):
         cluster = _cluster_state_two_node()
         flux_mock = mock.Mock(return_value=_ok())
 
-        mutating_mocks: list[mock.Mock] = []
-        with mock.patch.object(playground, "_registry_state", registry_bad):
-            with mock.patch.object(playground, "_cluster_state", return_value=cluster):
-                with mock.patch.object(playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE):
-                    with mock.patch.object(
-                        playground, "_kubectl_json",
-                        side_effect=self._passing_kubectl_json(),
-                    ):
-                        with mock.patch.object(playground, "_flux", flux_mock):
-                            for patcher, _name in self._read_only_patches():
-                                mutating_mocks.append(patcher.start())
-                            with mock.patch.object(playground, "_write_kubeconfig") as write_kubeconfig:
-                                with mock.patch.object(playground, "_wait_for_registry_endpoint"):
-                                    output: list[str] = []
-                                    ok = playground._full_health_check(
-                                        self.settings,
-                                        mock.Mock(),
-                                        stdout=output.append,
-                                    )
-                            write_kubeconfig.assert_not_called()
-                            for patcher, _name in self._read_only_patches():
-                                patcher.stop()
+        output: list[str] = []
+        with ExitStack() as stack:
+            mutating_mocks = self._patch_mutating_helpers(stack)
+            stack.enter_context(mock.patch.object(
+                playground, "_registry_state", registry_bad,
+            ))
+            stack.enter_context(mock.patch.object(
+                playground, "_cluster_state", return_value=cluster,
+            ))
+            stack.enter_context(mock.patch.object(
+                playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE,
+            ))
+            stack.enter_context(mock.patch.object(
+                playground, "_kubectl_json",
+                side_effect=self._passing_kubectl_json(),
+            ))
+            stack.enter_context(mock.patch.object(playground, "_flux", flux_mock))
+            ok = playground._full_health_check(
+                self.settings, mock.Mock(), stdout=output.append,
+            )
         self.assertFalse(ok)
         joined = "\n".join(output)
         # Original parser message is surfaced.
@@ -3099,9 +3105,9 @@ class TestHealthCheckParserErrors(unittest.TestCase):
         self.assertIn("registry image and binding", joined)
         # Continuation is demonstrated by the later ``flux check`` running.
         self.assertIn("flux check", joined)
-        self.assertTrue(flux_mock.called, "later ``flux check`` must run")
+        flux_mock.assert_called_once()
         # Read-only contract: no mutating lifecycle helper was invoked.
-        for mock_obj in mutating_mocks:
+        for mock_obj in mutating_mocks.values():
             self.assertFalse(
                 mock_obj.called,
                 "mutating lifecycle helper must not be called by make check",
@@ -3119,28 +3125,26 @@ class TestHealthCheckParserErrors(unittest.TestCase):
         )
         flux_mock = mock.Mock(return_value=_ok())
 
-        mutating_mocks: list[mock.Mock] = []
-        with mock.patch.object(playground, "_registry_state", return_value=registry_state):
-            with mock.patch.object(playground, "_cluster_state", cluster_bad):
-                with mock.patch.object(playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE):
-                    with mock.patch.object(
-                        playground, "_kubectl_json",
-                        side_effect=self._passing_kubectl_json(),
-                    ):
-                        with mock.patch.object(playground, "_flux", flux_mock):
-                            for patcher, _name in self._read_only_patches():
-                                mutating_mocks.append(patcher.start())
-                            with mock.patch.object(playground, "_write_kubeconfig") as write_kubeconfig:
-                                with mock.patch.object(playground, "_wait_for_registry_endpoint"):
-                                    output = []
-                                    ok = playground._full_health_check(
-                                        self.settings,
-                                        mock.Mock(),
-                                        stdout=output.append,
-                                    )
-                            write_kubeconfig.assert_not_called()
-                            for patcher, _name in self._read_only_patches():
-                                patcher.stop()
+        output: list[str] = []
+        with ExitStack() as stack:
+            mutating_mocks = self._patch_mutating_helpers(stack)
+            stack.enter_context(mock.patch.object(
+                playground, "_registry_state", return_value=registry_state,
+            ))
+            stack.enter_context(mock.patch.object(
+                playground, "_cluster_state", cluster_bad,
+            ))
+            stack.enter_context(mock.patch.object(
+                playground, "_docker_inspect_image", return_value=playground.K3S_IMAGE,
+            ))
+            stack.enter_context(mock.patch.object(
+                playground, "_kubectl_json",
+                side_effect=self._passing_kubectl_json(),
+            ))
+            stack.enter_context(mock.patch.object(playground, "_flux", flux_mock))
+            ok = playground._full_health_check(
+                self.settings, mock.Mock(), stdout=output.append,
+            )
         self.assertFalse(ok)
         joined = "\n".join(output)
         # Field name surfaces in the original error.
@@ -3150,11 +3154,39 @@ class TestHealthCheckParserErrors(unittest.TestCase):
         self.assertIn("cluster topology and images", joined)
         # Continuation via later ``flux check``.
         self.assertIn("flux check", joined)
-        self.assertTrue(flux_mock.called, "later ``flux check`` must run")
-        for mock_obj in mutating_mocks:
+        flux_mock.assert_called_once()
+        for mock_obj in mutating_mocks.values():
             self.assertFalse(
                 mock_obj.called,
                 "mutating lifecycle helper must not be called by make check",
+            )
+
+    def test_mutating_helper_patches_are_restored_after_scope(self) -> None:
+        """ExitStack must restore every mutating helper when the scope exits.
+
+        This regression test guards against the original contamination bug
+        where one test's ``patcher.start()`` calls and a separate test's
+        ``patcher.stop()`` calls left stale mocks active for the rest of
+        the test process.
+        """
+        originals = {
+            name: getattr(playground, name) for name in self.MUTATING_HELPERS
+        }
+
+        with ExitStack() as stack:
+            mutating_mocks = self._patch_mutating_helpers(stack)
+            for name, mock_obj in mutating_mocks.items():
+                self.assertIs(
+                    getattr(playground, name),
+                    mock_obj,
+                    f"{name} must be replaced by its mock while the stack is active",
+                )
+
+        for name, original in originals.items():
+            self.assertIs(
+                getattr(playground, name),
+                original,
+                f"{name} must be restored to its original object after the stack exits",
             )
 
 
