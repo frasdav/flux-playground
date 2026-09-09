@@ -1,0 +1,35 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playground-smoke
+  namespace: flux-playground
+  labels:
+    app.kubernetes.io/name: playground-smoke
+    app.kubernetes.io/part-of: flux-playground
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: playground-smoke
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: playground-smoke
+        app.kubernetes.io/part-of: flux-playground
+    spec:
+      # The server is tainted with CriticalAddonsOnly=true:NoExecute, so the
+      # scheduler will only place this pod on the agent node.
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10@sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a
+          imagePullPolicy: IfNotPresent
+          command:
+            - /pause
+          volumeMounts:
+            - name: message
+              mountPath: /etc/playground
+      volumes:
+        - name: message
+          configMap:
+            name: playground-smoke

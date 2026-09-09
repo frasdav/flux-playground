@@ -1,0 +1,12 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: playground-smoke
+  namespace: flux-playground
+  labels:
+    app.kubernetes.io/name: playground-smoke
+    app.kubernetes.io/part-of: flux-playground
+data:
+  # Edit this value, then run `make push` to update the live cluster.
+  message: "flux playground smoke workload"

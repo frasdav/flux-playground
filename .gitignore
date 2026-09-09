@@ -1,0 +1,31 @@
+# Local playground state
+.context/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python build and distribution artefacts
+build/
+dist/
+*.egg-info/
+
+# Byte-compiled / optimised files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test / coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
