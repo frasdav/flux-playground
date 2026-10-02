@@ -1,0 +1,25 @@
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+spec:
+  distribution:
+    version: "2.9.4"
+    registry: ghcr.io/fluxcd
+  components:
+    - source-controller
+    - kustomize-controller
+    - helm-controller
+    - notification-controller
+  cluster:
+    type: kubernetes
+    size: small
+  sync:
+    kind: GitRepository
+    provider: github
+    url: https://github.com/frontierhq/flux-fleet.git
+    ref: refs/heads/__FLEET_BRANCH__
+    path: clusters/__CLUSTER_NAME__
+    pullSecret: flux-github-app

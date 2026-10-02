@@ -1,0 +1,10 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-properties
+  namespace: flux-system
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+data:
+  FRO_CLUSTER_NAME: __CLUSTER_NAME__

@@ -1,0 +1,18 @@
+#cloud-config
+---
+users:
+  - default
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHw7/mgGm2WBhBvp44C8OerbWY7GOZ6eScPGUqpzEEXS
+ssh_pwauth: false
+
+write_files:
+  - path: /etc/rancher/rke2/config.yaml
+    owner: root:root
+    content: |
+      disable-cloud-controller: true
+      write-kubeconfig-mode: "0644"
+      ingress-controller: traefik
