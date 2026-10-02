@@ -15,3 +15,26 @@ The cache survives `make reset`, which deletes only the VM and its disk.
 
 Use `make stop` to shut down the VM, `make reset` to delete it, and `make ip`
 to print its current address.
+
+## Flux bootstrap
+
+`make install-flux-operator` installs Flux Operator chart `0.58.1` through
+RKE2's Helm controller and waits for its deployment and `FluxInstance` CRD.
+
+The GitHub App ID defaults to `4831148` and its installation owner to
+`frontierhq`. Sign in to the 1Password CLI, then set
+`FLUX_GITHUB_APP_PRIVATE_KEY_OP_REF` to the private-key field's `op://` reference
+and run `make install-flux-github-app-secret`. The key is read into the process
+and sent directly to Kubernetes; it is not saved in this repository. An exported
+`FLUX_GITHUB_APP_PRIVATE_KEY` can be used instead.
+
+`make apply-flux-bootstrap` applies the local cluster properties and
+`FluxInstance`. By default, it syncs `clusters/frasers-flux-playground` from the
+`main` branch of `frontierhq/flux-fleet`. That path must exist on the remote
+branch before applying the bootstrap. Override `CLUSTER_NAME` or `FLEET_BRANCH`
+on the Make command line when testing another path or branch.
+The GitHub App must have access to `flux-fleet` and any other private sources
+selected by that cluster.
+The running cluster currently tracks `frasdav/surabaya`. Use the fleet
+repository's branch handoff workflow before merging so the live cluster does
+not switch to a path that is not yet on `main`.
