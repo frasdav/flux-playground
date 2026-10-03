@@ -10,6 +10,7 @@ RKE2_ARCH := $(if $(filter arm64 aarch64,$(shell uname -m)),arm64,$(if $(filter 
 RKE2_CACHE_DIR := $(CURDIR)/.cache/rke2/$(RKE2_VERSION)/$(RKE2_ARCH)
 KUBECONFIG := $(HOME)/.kube/$(INSTANCE).yaml
 CLUSTER_NAME ?= frasers-flux-playground
+LETSENCRYPT_EMAIL ?= admin@frontierhq.net
 FLEET_BRANCH ?= main
 FLUX_GITHUB_APP_ID ?= 4831148
 FLUX_GITHUB_APP_INSTALLATION_OWNER ?= frontierhq
@@ -54,4 +55,5 @@ install-flux-github-app-secret:
 
 apply-flux-bootstrap:
 	@KUBECONFIG='$(KUBECONFIG)' CLUSTER_NAME='$(CLUSTER_NAME)' \
-		FLEET_BRANCH='$(FLEET_BRANCH)' sh scripts/apply-flux-bootstrap.sh
+		LETSENCRYPT_EMAIL='$(LETSENCRYPT_EMAIL)' FLEET_BRANCH='$(FLEET_BRANCH)' \
+		sh scripts/apply-flux-bootstrap.sh

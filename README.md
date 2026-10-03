@@ -32,7 +32,9 @@ and sent directly to Kubernetes; it is not saved in this repository. An exported
 `FluxInstance`. By default, it syncs `clusters/frasers-flux-playground` from the
 `main` branch of `frontierhq/flux-fleet`. That path must exist on the remote
 branch before applying the bootstrap. Override `CLUSTER_NAME` or `FLEET_BRANCH`
-on the Make command line when testing another path or branch.
+on the Make command line when testing another path or branch. The
+`FRO_LETSENCRYPT_EMAIL` cluster property defaults to `admin@frontierhq.net`;
+override it with `LETSENCRYPT_EMAIL` on the Make command line.
 The GitHub App must have access to `flux-fleet` and any other private sources
 selected by that cluster.
 The running cluster currently tracks `frasdav/surabaya`. Use the fleet

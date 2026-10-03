@@ -8,3 +8,4 @@ metadata:
     reconcile.fluxcd.io/watch: Enabled
 data:
   FRO_CLUSTER_NAME: __CLUSTER_NAME__
+  FRO_LETSENCRYPT_EMAIL: __LETSENCRYPT_EMAIL__
