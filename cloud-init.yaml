@@ -15,4 +15,4 @@ write_files:
     content: |
       disable-cloud-controller: true
       write-kubeconfig-mode: "0644"
-      ingress-controller: traefik
+      ingress-controller: none
