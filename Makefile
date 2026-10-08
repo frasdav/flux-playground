@@ -9,21 +9,20 @@ RKE2_VERSION := v1.36.4+rke2r1
 RKE2_ARCH := $(if $(filter arm64 aarch64,$(shell uname -m)),arm64,$(if $(filter x86_64 amd64,$(shell uname -m)),amd64,unsupported))
 RKE2_CACHE_DIR := $(CURDIR)/.cache/rke2/$(RKE2_VERSION)/$(RKE2_ARCH)
 KUBECONFIG := $(HOME)/.kube/$(INSTANCE).yaml
-CLUSTER_NAME ?= frasers-flux-playground
 FLEET_BRANCH ?= main
 FLUX_GITHUB_APP_ID ?= 4831148
 FLUX_GITHUB_APP_INSTALLATION_OWNER ?= frontierhq
 LB_ROUTE_CIDR ?= 172.30.255.240/29
 LB_CHECK_IP ?= 172.30.255.241
 
-.PHONY: up stop reset ip shell status cache-rke2 install-rke2 install-flux-operator install-flux-github-app-secret apply-flux-bootstrap setup-lb-routing
+.PHONY: up down reset ip shell status cache-rke2 install-rke2 install-flux-operator install-flux-github-app-secret apply-flux-bootstrap setup-lb-routing
 
 up:
 	@INSTANCE='$(INSTANCE)' UBUNTU_RELEASE='$(UBUNTU_RELEASE)' CPUS='$(CPUS)' \
 		MEMORY='$(MEMORY)' DISK='$(DISK)' RKE2_VERSION='$(RKE2_VERSION)' \
 		RKE2_ARCH='$(RKE2_ARCH)' RKE2_CACHE_DIR='$(RKE2_CACHE_DIR)' sh scripts/up.sh
 
-stop:
+down:
 	multipass stop '$(INSTANCE)'
 
 reset:

@@ -10,6 +10,9 @@ set -eu
 : "${RKE2_ARCH:?}"
 : "${RKE2_CACHE_DIR:?}"
 
+# Check daemon access before treating a failed instance lookup as a missing VM.
+multipass list >/dev/null
+
 if multipass info "$INSTANCE" >/dev/null 2>&1; then
   state=$(multipass info --format csv "$INSTANCE" | awk -F, 'NR == 2 { print $2 }')
   case "$state" in
