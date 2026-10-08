@@ -15,7 +15,8 @@ mkdir -p "$destination_dir"
 temporary_dir=$(mktemp -d "$destination_dir/.$instance.XXXXXX")
 trap 'rm -r "$temporary_dir"' 0
 
-multipass transfer "$instance:/etc/rancher/rke2/rke2.yaml" "$temporary_dir/rke2.yaml"
+# Let the host shell write hidden paths that the Multipass snap cannot access.
+multipass exec "$instance" -- cat /etc/rancher/rke2/rke2.yaml > "$temporary_dir/rke2.yaml"
 if ! grep -Fq 'server: https://127.0.0.1:6443' "$temporary_dir/rke2.yaml"; then
   echo "Expected the RKE2 kubeconfig to use https://127.0.0.1:6443" >&2
   exit 1

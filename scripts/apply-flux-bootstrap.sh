@@ -2,7 +2,7 @@
 set -eu
 
 : "${KUBECONFIG:?}"
-: "${CLUSTER_NAME:?}"
+: "${CLUSTER_NAME:?Set CLUSTER_NAME, for example: make apply-flux-bootstrap CLUSTER_NAME=my-cluster}"
 : "${FLEET_BRANCH:?}"
 
 case "$CLUSTER_NAME" in
