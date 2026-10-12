@@ -7,4 +7,4 @@ metadata:
   labels:
     reconcile.fluxcd.io/watch: Enabled
 data:
-  FRO_CLUSTER_NAME: __CLUSTER_NAME__
+  RANGE_CLUSTER_NAME: __CLUSTER_NAME__

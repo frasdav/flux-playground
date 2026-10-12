@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-: "${INSTANCE:?}"
+: "${CLUSTER_NAME:?}"
 : "${LB_ROUTE_CIDR:?}"
 : "${LB_CHECK_IP:?}"
 
@@ -11,11 +11,11 @@ case "$host_os" in
   *) echo "Unsupported host OS for LoadBalancer routing: $host_os" >&2; exit 1 ;;
 esac
 
-instance_info=$(multipass info --format csv "$INSTANCE" | awk -F, 'NR == 2 { print $2 " " $3 }')
+instance_info=$(multipass info --format csv "$CLUSTER_NAME" | awk -F, 'NR == 2 { print $2 " " $3 }')
 instance_state=${instance_info%% *}
 instance_ip=${instance_info#* }
 if [ "$instance_state" != Running ] || [ -z "$instance_ip" ] || [ "$instance_ip" = -- ]; then
-  echo "Could not determine the running IPv4 address of $INSTANCE" >&2
+  echo "Could not determine the running IPv4 address of $CLUSTER_NAME" >&2
   exit 1
 fi
 

@@ -1,1 +1,6 @@
+# ide
+.vscode
+.env
+
+# other
 .cache/

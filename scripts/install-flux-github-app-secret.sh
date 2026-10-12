@@ -12,7 +12,7 @@ fi
 : "${FLUX_GITHUB_APP_PRIVATE_KEY:?}"
 
 if [ ! -r "$KUBECONFIG" ]; then
-  echo "Kubeconfig is not readable: $KUBECONFIG (run make up first)" >&2
+  echo "Kubeconfig is not readable: $KUBECONFIG (run make up with the same CLUSTER_NAME first)" >&2
   exit 1
 fi
 
