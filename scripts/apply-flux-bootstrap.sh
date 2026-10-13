@@ -2,7 +2,7 @@
 set -eu
 
 : "${KUBECONFIG:?}"
-: "${CLUSTER_NAME:?}"
+: "${CLUSTER_NAME:?Set CLUSTER_NAME, for example: make apply-flux-bootstrap CLUSTER_NAME=my-cluster}"
 : "${FLEET_BRANCH:?}"
 
 case "$CLUSTER_NAME" in
@@ -12,7 +12,7 @@ case "$FLEET_BRANCH" in
   *[!a-zA-Z0-9._/-]*|'') echo "Invalid fleet branch: $FLEET_BRANCH" >&2; exit 1 ;;
 esac
 if [ ! -r "$KUBECONFIG" ]; then
-  echo "Kubeconfig is not readable: $KUBECONFIG (run make up first)" >&2
+  echo "Kubeconfig is not readable: $KUBECONFIG (run make up with the same CLUSTER_NAME first)" >&2
   exit 1
 fi
 kubectl get secret flux-github-app -n flux-system >/dev/null
